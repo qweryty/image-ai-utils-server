@@ -6,35 +6,34 @@ from typing import Optional, List
 
 import torch
 import uvicorn
-from diffusers import StableDiffusionPipeline
 from fastapi import FastAPI
-from pydantic import BaseModel, Field
 from fastapi.middleware.gzip import GZipMiddleware
+from pydantic import BaseModel, Field
 from torch import autocast
 
-from image_to_image import StableDiffusionImg2ImgPipeline
+from universal_pipeline import StableDiffusionUniversalPipeline
 
 app = FastAPI()
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
-
 # TODO settings
-MAX_PIXELS_PER_BATCH = 512 * 512 * 3  # better way to determine batch size?
+MAX_PIXELS_PER_BATCH = 512 * 512 * 7  # better way to determine batch size?
 MIN_SEED = -0x8000_0000_0000_0000
 MAX_SEED = 0xffff_ffff_ffff_ffff
-text_to_image_pipeline = StableDiffusionPipeline.from_pretrained(
-    'CompVis/stable-diffusion-v1-4', use_auth_token=True
-).to('cuda')
-image_to_image_pipeline = StableDiffusionImg2ImgPipeline.from_pretrained(
-    'CompVis/stable-diffusion-v1-4', use_auth_token=True
+
+# TODO universal pipeline to optimize memory
+pipeline = StableDiffusionUniversalPipeline.from_pretrained(
+    'CompVis/stable-diffusion-v1-4',
+    revision='fp16',
+    torch_dtype=torch.bfloat16,
+    use_auth_token=True
 ).to('cuda')
 
 
 def dummy_checker(images, **kwargs): return images, False
 
 
-text_to_image_pipeline.safety_checker = dummy_checker  # Disabling safety
-image_to_image_pipeline.safety_checker = dummy_checker
+pipeline.safety_checker = dummy_checker  # Disabling safety
 
 
 class ImageFormat(str, Enum):
@@ -58,6 +57,7 @@ class TextToImageRequest(BaseDiffusionRequest):
 
 class ImageToImageRequest(BaseDiffusionRequest):
     source_image: bytes
+    strength: int = Field(0.8, ge=0, le=1)
     mask: Optional[bytes] = None
     num_variants: int = Field(6, gt=1)
 
@@ -116,7 +116,7 @@ def text_to_image(request: TextToImageRequest) -> ImageArrayResponse:
 
     with autocast('cuda'):
         for i in range(num_batches):
-            new_images = text_to_image_pipeline(
+            new_images = pipeline(
                 prompts,
                 num_inference_steps=request.num_inference_steps,
                 generator=generator,
@@ -127,7 +127,7 @@ def text_to_image(request: TextToImageRequest) -> ImageArrayResponse:
             images.extend(new_images)
 
         if last_batch_size:
-            new_images = text_to_image_pipeline(
+            new_images = pipeline(
                 [request.prompt] * last_batch_size,
                 num_inference_steps=request.num_inference_steps,
                 generator=generator,

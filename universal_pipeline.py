@@ -4,11 +4,11 @@
 import inspect
 from typing import List, Optional, Union
 
+import PIL
 import numpy as np
 import torch
-
-import PIL
-from diffusers import AutoencoderKL, DDIMScheduler, DiffusionPipeline, PNDMScheduler, UNet2DConditionModel
+from diffusers import AutoencoderKL, DDIMScheduler, PNDMScheduler, \
+    UNet2DConditionModel, StableDiffusionPipeline
 from diffusers.pipelines.stable_diffusion import StableDiffusionSafetyChecker
 from tqdm.auto import tqdm
 from transformers import CLIPFeatureExtractor, CLIPTextModel, CLIPTokenizer
@@ -40,7 +40,7 @@ def preprocess_mask(mask):
     return mask
 
 
-class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
+class StableDiffusionUniversalPipeline(StableDiffusionPipeline):
     def __init__(
         self,
         vae: AutoencoderKL,
@@ -51,16 +51,14 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
         safety_checker: StableDiffusionSafetyChecker,
         feature_extractor: CLIPFeatureExtractor,
     ):
-        super().__init__()
-        scheduler = scheduler.set_format("pt")
-        self.register_modules(
+        super().__init__(
             vae=vae,
             text_encoder=text_encoder,
             tokenizer=tokenizer,
             unet=unet,
             scheduler=scheduler,
             safety_checker=safety_checker,
-            feature_extractor=feature_extractor,
+            feature_extractor=feature_extractor
         )
 
     def _scale_and_encode(self, image: torch.FloatTensor):
@@ -71,7 +69,7 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
         return self.vae.decode(1 / 0.18215 * latents)
 
     @torch.no_grad()
-    def __call__(
+    def image_to_image(
         self,
         prompt: Union[str, List[str]],
         init_image: torch.FloatTensor,
@@ -181,10 +179,6 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
             if mask is not None:
                 init_latents_proper = self.scheduler.add_noise(init_latents_orig, noise, t)
                 latents = init_latents_proper * (1 - mask) + latents * mask
-                #predicted_image = self._scale_and_decode(latents)
-                #inpainted = (1 - mask) * init_image + mask * predicted_image
-                #inpainted = predicted_image
-                #latents = self._scale_and_encode(inpainted)
 
         # scale and decode the image latents with vae
         image = self._scale_and_decode(latents)
