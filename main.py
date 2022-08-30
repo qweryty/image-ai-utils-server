@@ -1,23 +1,24 @@
 import mimetypes
-from base64 import b64encode
+from base64 import b64encode, b64decode
 from enum import Enum
 from io import BytesIO
 from typing import Optional, List
 
 import torch
 import uvicorn
+from PIL import Image
 from fastapi import FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, Field
 from torch import autocast
 
-from universal_pipeline import StableDiffusionUniversalPipeline
+from universal_pipeline import StableDiffusionUniversalPipeline, preprocess
 
 app = FastAPI()
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # TODO settings
-MAX_PIXELS_PER_BATCH = 512 * 512 * 7  # better way to determine batch size?
+MAX_PIXELS_PER_BATCH = 512 * 512 * 4  # better way to determine batch size?
 MIN_SEED = -0x8000_0000_0000_0000
 MAX_SEED = 0xffff_ffff_ffff_ffff
 
@@ -57,9 +58,9 @@ class TextToImageRequest(BaseDiffusionRequest):
 
 class ImageToImageRequest(BaseDiffusionRequest):
     source_image: bytes
-    strength: int = Field(0.8, ge=0, le=1)
+    strength: float = Field(0.8, ge=0, le=1)
     mask: Optional[bytes] = None
-    num_variants: int = Field(6, gt=1)
+    num_variants: int = Field(6, gt=0)
 
 
 class GoBigRequest(BaseDiffusionRequest):
@@ -148,9 +149,73 @@ def text_to_image(request: TextToImageRequest) -> ImageArrayResponse:
     return ImageArrayResponse(images=encoded_images)
 
 
+# TODO use common utils
+def base64url_to_image(source: bytes) -> Image.Image:
+    _, data = source.split(b',')
+    return Image.open(BytesIO(b64decode(data)))
+
+
 @app.post('/image_to_image')
-def image_to_image() -> ImageArrayResponse:
-    return ImageArrayResponse(images=[])
+def image_to_image(request: ImageToImageRequest) -> ImageArrayResponse:
+    source_image = base64url_to_image(request.source_image)
+    aspect_ratio = source_image.width / source_image.height
+    if aspect_ratio > 1:
+        height = 512
+        width = int(height * aspect_ratio)
+        width -= width % 64
+    else:
+        width = 512
+        height = int(width / aspect_ratio)
+        height -= height % 64
+
+    if request.seed is not None:
+        generator = torch.Generator('cuda').manual_seed(request.seed)
+    else:
+        generator = None
+
+    # FIXME
+    num_batches = request.num_variants
+    batch_size = 1
+    prompts = request.prompt
+
+    last_batch_size = request.num_variants - batch_size * num_batches
+    images = []
+
+    source_image = source_image.resize((width, height))
+
+    with autocast('cuda'):
+        preprocessed_source_image = preprocess(source_image).to(pipeline.device)
+        for i in range(num_batches):
+            new_images = pipeline.image_to_image(
+                prompt=prompts,
+                init_image=preprocessed_source_image,
+                strength=request.strength,
+                num_inference_steps=request.num_inference_steps,
+                generator=generator,
+                guidance_scale=request.guidance_scale,
+            )['sample']
+            images.extend(new_images)
+
+        if last_batch_size:
+            new_images = pipeline.image_to_image(
+                prompt=[request.prompt] * last_batch_size,
+                init_image=preprocessed_source_image,
+                strength=request.strength,
+                num_inference_steps=request.num_inference_steps,
+                generator=generator,
+                guidance_scale=request.guidance_scale,
+            )['sample']
+            images.extend(new_images)
+
+    encoded_images = []
+    data_string = f'data:{mimetypes.types_map[f".{request.output_format.lower()}"]};base64,' \
+        .encode()
+    for image in images:
+        buffer = BytesIO()
+        image.save(buffer, format=request.output_format)
+        encoded_images.append(data_string + b64encode(buffer.getvalue()))
+
+    return ImageArrayResponse(images=encoded_images)
 
 
 @app.post('/gobig')

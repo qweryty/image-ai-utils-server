@@ -4,9 +4,9 @@
 import inspect
 from typing import List, Optional, Union
 
-import PIL
 import numpy as np
 import torch
+from PIL import Image
 from diffusers import AutoencoderKL, DDIMScheduler, PNDMScheduler, \
     UNet2DConditionModel, StableDiffusionPipeline
 from diffusers.pipelines.stable_diffusion import StableDiffusionSafetyChecker
@@ -14,17 +14,19 @@ from tqdm.auto import tqdm
 from transformers import CLIPFeatureExtractor, CLIPTextModel, CLIPTokenizer
 
 
-def preprocess(image):
+def preprocess(image: Image.Image):
+    image = image.convert('RGB')
     w, h = image.size
     w, h = map(lambda x: x - x % 64, (w, h))  # resize to integer multiple of 64
-    image = image.resize((w, h), resample=PIL.Image.LANCZOS)
+    image = image.resize((w, h), resample=Image.LANCZOS)
     image = np.array(image).astype(np.float32) / 255.0
     image = image[None].transpose(0, 3, 1, 2)
     image = torch.from_numpy(image)
     return 2.0 * image - 1.0
 
 
-def preprocess_mask(mask):
+def preprocess_mask(mask: Image.Image):
+    mask = mask.convert('L')
     w, h = mask.size
     w, h = map(lambda x: x - x % 64, (w, h))  # resize to integer multiple of 64
     if w < h:
@@ -34,7 +36,7 @@ def preprocess_mask(mask):
         w = int(w / (h / 64))
         h = 64
 
-    mask = mask.resize((w, h), resample=PIL.Image.LANCZOS)
+    mask = mask.resize((w, h), resample=Image.LANCZOS)
     mask = np.array(mask).astype(np.float32) / 255.0
     mask = torch.from_numpy(mask)
     return mask
@@ -62,7 +64,7 @@ class StableDiffusionUniversalPipeline(StableDiffusionPipeline):
         )
 
     def _scale_and_encode(self, image: torch.FloatTensor):
-        latents = self.vae.encode(image.to(self.device)).sample()
+        latents = self.vae.encode(image).sample()
         return 0.18215 * latents
 
     def _scale_and_decode(self, latents):
@@ -82,10 +84,6 @@ class StableDiffusionUniversalPipeline(StableDiffusionPipeline):
         output_type: Optional[str] = "pil",
         run_safety_checker: bool = False
     ):
-        init_image = init_image.to(self.device)
-        if mask is not None:
-            mask = mask.to(self.device)
-
         if isinstance(prompt, str):
             batch_size = 1
         elif isinstance(prompt, list):
