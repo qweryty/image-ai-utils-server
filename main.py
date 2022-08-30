@@ -1,3 +1,4 @@
+import logging
 import mimetypes
 from base64 import b64encode, b64decode
 from enum import Enum
@@ -14,11 +15,11 @@ from torch import autocast
 
 from universal_pipeline import StableDiffusionUniversalPipeline, preprocess
 
+logger = logging.getLogger(__name__)
+
 app = FastAPI()
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
-# TODO settings
-MAX_PIXELS_PER_BATCH = 512 * 512 * 4  # better way to determine batch size?
 MIN_SEED = -0x8000_0000_0000_0000
 MAX_SEED = 0xffff_ffff_ffff_ffff
 
@@ -45,22 +46,23 @@ class ImageFormat(str, Enum):
 
 class BaseDiffusionRequest(BaseModel):
     prompt: str = Field(...)
+    num_variants: int = Field(6, gt=0)
     output_format: ImageFormat = ImageFormat.PNG
     num_inference_steps: int = Field(50, gt=0)
     guidance_scale: float = Field(7.5)
     seed: Optional[int] = Field(None, ge=MIN_SEED, le=MAX_SEED)
+    batch_size: int = Field(7, gt=0)  # TODO determine automatically
+    try_smaller_batch_on_fail: bool = True
 
 
 class TextToImageRequest(BaseDiffusionRequest):
     aspect_ratio: float = Field(1., gt=0)  # width/height
-    num_variants: int = Field(6, gt=0)
 
 
 class ImageToImageRequest(BaseDiffusionRequest):
     source_image: bytes
     strength: float = Field(0.8, ge=0, le=1)
     mask: Optional[bytes] = None
-    num_variants: int = Field(6, gt=0)
 
 
 class GoBigRequest(BaseDiffusionRequest):
@@ -83,6 +85,57 @@ class ImageArrayResponse(BaseModel):
     images: List[bytes]
 
 
+def do_diffusion(request: BaseDiffusionRequest, diffusion_method, **kwargs) -> ImageArrayResponse:
+    if request.seed is not None:
+        generator = torch.Generator('cuda').manual_seed(request.seed)
+    else:
+        generator = None
+
+    with autocast('cuda'):
+        batch_size = request.batch_size
+        while True:
+            try:
+                num_batches = request.num_variants // batch_size
+                prompts = [request.prompt] * batch_size
+                last_batch_size = request.num_variants - batch_size * num_batches
+                images = []
+                for i in range(num_batches):
+                    new_images = diffusion_method(
+                        prompt=prompts,
+                        num_inference_steps=request.num_inference_steps,
+                        generator=generator,
+                        guidance_scale=request.guidance_scale,
+                        **kwargs
+                    )['sample']
+                    images.extend(new_images)
+
+                if last_batch_size:
+                    new_images = diffusion_method(
+                        prompt=[request.prompt] * last_batch_size,
+                        num_inference_steps=request.num_inference_steps,
+                        generator=generator,
+                        guidance_scale=request.guidance_scale,
+                        **kwargs
+                    )['sample']
+                    images.extend(new_images)
+                break
+            except RuntimeError as e:
+                if request.try_smaller_batch_on_fail and batch_size > 1:
+                    logger.warning(f'Batch size {batch_size} was too large, trying smaller')
+                    batch_size -= 1
+                else:
+                    raise e
+
+    encoded_images = []
+    data_string = f'data:{mimetypes.types_map[f".{request.output_format.lower()}"]};base64,' \
+        .encode()
+    for image in images:
+        buffer = BytesIO()
+        image.save(buffer, format=request.output_format)
+        encoded_images.append(data_string + b64encode(buffer.getvalue()))
+
+    return ImageArrayResponse(images=encoded_images)
+
 # TODO task queue and web sockets?
 #  (or can set up an external scheduler and use this as internal endpoint)
 @app.post('/text_to_image')
@@ -95,58 +148,9 @@ def text_to_image(request: TextToImageRequest) -> ImageArrayResponse:
         width = 512
         height = int(width / request.aspect_ratio)
         height -= height % 64
-
-    if request.seed is not None:
-        generator = torch.Generator('cuda').manual_seed(request.seed)
-    else:
-        generator = None
-
-    total_pixels = width * height * request.num_variants
-    if total_pixels > MAX_PIXELS_PER_BATCH:
-        batch_size = MAX_PIXELS_PER_BATCH // (width * height)
-        num_batches = request.num_variants // batch_size
-
-        prompts = [request.prompt] * batch_size
-    else:
-        num_batches = 0
-        batch_size = 0
-        prompts = []
-
-    last_batch_size = request.num_variants - batch_size * num_batches
-    images = []
-
-    with autocast('cuda'):
-        for i in range(num_batches):
-            new_images = pipeline(
-                prompts,
-                num_inference_steps=request.num_inference_steps,
-                generator=generator,
-                guidance_scale=request.guidance_scale,
-                height=height,
-                width=width,
-            )['sample']
-            images.extend(new_images)
-
-        if last_batch_size:
-            new_images = pipeline(
-                [request.prompt] * last_batch_size,
-                num_inference_steps=request.num_inference_steps,
-                generator=generator,
-                guidance_scale=request.guidance_scale,
-                height=height,
-                width=width,
-            )['sample']
-            images.extend(new_images)
-
-    encoded_images = []
-    data_string = f'data:{mimetypes.types_map[f".{request.output_format.lower()}"]};base64,' \
-        .encode()
-    for image in images:
-        buffer = BytesIO()
-        image.save(buffer, format=request.output_format)
-        encoded_images.append(data_string + b64encode(buffer.getvalue()))
-
-    return ImageArrayResponse(images=encoded_images)
+    return do_diffusion(
+        request, pipeline.__call__, height=height, width=width
+    )
 
 
 # TODO use common utils
@@ -168,54 +172,15 @@ def image_to_image(request: ImageToImageRequest) -> ImageArrayResponse:
         height = int(width / aspect_ratio)
         height -= height % 64
 
-    if request.seed is not None:
-        generator = torch.Generator('cuda').manual_seed(request.seed)
-    else:
-        generator = None
-
-    # FIXME
-    num_batches = request.num_variants
-    batch_size = 1
-    prompts = request.prompt
-
-    last_batch_size = request.num_variants - batch_size * num_batches
-    images = []
-
     source_image = source_image.resize((width, height))
-
     with autocast('cuda'):
         preprocessed_source_image = preprocess(source_image).to(pipeline.device)
-        for i in range(num_batches):
-            new_images = pipeline.image_to_image(
-                prompt=prompts,
-                init_image=preprocessed_source_image,
-                strength=request.strength,
-                num_inference_steps=request.num_inference_steps,
-                generator=generator,
-                guidance_scale=request.guidance_scale,
-            )['sample']
-            images.extend(new_images)
-
-        if last_batch_size:
-            new_images = pipeline.image_to_image(
-                prompt=[request.prompt] * last_batch_size,
-                init_image=preprocessed_source_image,
-                strength=request.strength,
-                num_inference_steps=request.num_inference_steps,
-                generator=generator,
-                guidance_scale=request.guidance_scale,
-            )['sample']
-            images.extend(new_images)
-
-    encoded_images = []
-    data_string = f'data:{mimetypes.types_map[f".{request.output_format.lower()}"]};base64,' \
-        .encode()
-    for image in images:
-        buffer = BytesIO()
-        image.save(buffer, format=request.output_format)
-        encoded_images.append(data_string + b64encode(buffer.getvalue()))
-
-    return ImageArrayResponse(images=encoded_images)
+    return do_diffusion(
+        request,
+        pipeline.image_to_image,
+        init_image=preprocessed_source_image,
+        strength=request.strength,
+    )
 
 
 @app.post('/gobig')
