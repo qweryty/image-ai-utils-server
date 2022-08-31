@@ -13,7 +13,9 @@ from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, Field
 from torch import autocast
 
+import esrgan_upscaler
 from universal_pipeline import StableDiffusionUniversalPipeline, preprocess, preprocess_mask
+from utils import base64url_to_image, image_to_base64url
 
 logger = logging.getLogger(__name__)
 
@@ -71,18 +73,20 @@ class GoBigRequest(BaseDiffusionRequest):
     init_strength: float = Field(.5, ge=0, le=1)
     target_width: int = Field(..., gt=0)
     target_height: int = Field(..., gt=0)
-    # TODO factor
 
 
 class UpscaleRequest(BaseModel):
     image: bytes
     target_width: int = Field(..., gt=0)
     target_height: int = Field(..., gt=0)
-    # TODO factor
 
 
 class ImageArrayResponse(BaseModel):
     images: List[bytes]
+
+
+class UpscaleResponse(BaseModel):
+    image: bytes
 
 
 def do_diffusion(request: BaseDiffusionRequest, diffusion_method, **kwargs) -> ImageArrayResponse:
@@ -160,12 +164,6 @@ def text_to_image(request: TextToImageRequest) -> ImageArrayResponse:
     )
 
 
-# TODO use common utils
-def base64url_to_image(source: bytes) -> Image.Image:
-    _, data = source.split(b',')
-    return Image.open(BytesIO(b64decode(data)))
-
-
 @app.post('/image_to_image')
 def image_to_image(request: ImageToImageRequest) -> ImageArrayResponse:
     source_image = base64url_to_image(request.source_image)
@@ -192,13 +190,18 @@ def image_to_image(request: ImageToImageRequest) -> ImageArrayResponse:
 
 
 @app.post('/gobig')
-def gobig(request: GoBigRequest):
+def gobig(request: GoBigRequest) -> UpscaleResponse:
     pass
 
 
 @app.post('/upscale')
-def upscale(request: UpscaleRequest):
-    pass
+def upscale(request: UpscaleRequest) -> UpscaleResponse:
+    # TODO multiple steps to make bigger than 4x
+    return UpscaleResponse(
+        image=image_to_base64url(
+            esrgan_upscaler.upscale(image=base64url_to_image(request.image))
+        )
+    )
 
 
 if __name__ == '__main__':
