@@ -3,7 +3,7 @@ import mimetypes
 from base64 import b64encode, b64decode
 from enum import Enum
 from io import BytesIO
-from typing import Optional, List
+from typing import Optional, List, Tuple
 
 import torch
 import uvicorn
@@ -13,7 +13,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, Field
 from torch import autocast
 
-from universal_pipeline import StableDiffusionUniversalPipeline, preprocess
+from universal_pipeline import StableDiffusionUniversalPipeline, preprocess, preprocess_mask
 
 logger = logging.getLogger(__name__)
 
@@ -136,18 +136,25 @@ def do_diffusion(request: BaseDiffusionRequest, diffusion_method, **kwargs) -> I
 
     return ImageArrayResponse(images=encoded_images)
 
+
+def size_from_aspect_ratio(aspect_ratio: float) -> Tuple[int, int]:
+    if aspect_ratio > 1:
+        height = 512
+        width = int(height * aspect_ratio)
+        width -= width % 64
+    else:
+        width = 512
+        height = int(width / aspect_ratio)
+        height -= height % 64
+
+    return width, height
+
+
 # TODO task queue and web sockets?
 #  (or can set up an external scheduler and use this as internal endpoint)
 @app.post('/text_to_image')
 def text_to_image(request: TextToImageRequest) -> ImageArrayResponse:
-    if request.aspect_ratio > 1:
-        height = 512
-        width = int(height * request.aspect_ratio)
-        width -= width % 64
-    else:
-        width = 512
-        height = int(width / request.aspect_ratio)
-        height -= height % 64
+    width, height = size_from_aspect_ratio(request.aspect_ratio)
     return do_diffusion(
         request, pipeline.__call__, height=height, width=width
     )
@@ -163,23 +170,24 @@ def base64url_to_image(source: bytes) -> Image.Image:
 def image_to_image(request: ImageToImageRequest) -> ImageArrayResponse:
     source_image = base64url_to_image(request.source_image)
     aspect_ratio = source_image.width / source_image.height
-    if aspect_ratio > 1:
-        height = 512
-        width = int(height * aspect_ratio)
-        width -= width % 64
-    else:
-        width = 512
-        height = int(width / aspect_ratio)
-        height -= height % 64
+    size = size_from_aspect_ratio(aspect_ratio)
 
-    source_image = source_image.resize((width, height))
+    source_image = source_image.resize(size)
+    mask = None
+    if request.mask:
+        mask = base64url_to_image(request.mask).resize(size)
+
     with autocast('cuda'):
         preprocessed_source_image = preprocess(source_image).to(pipeline.device)
+        preprocessed_mask = None
+        if mask is not None:
+            preprocessed_mask = preprocess_mask(mask).to(pipeline.device)
     return do_diffusion(
         request,
         pipeline.image_to_image,
         init_image=preprocessed_source_image,
         strength=request.strength,
+        mask=preprocessed_mask
     )
 
 
