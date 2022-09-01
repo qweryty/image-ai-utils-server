@@ -1,3 +1,4 @@
+from settings import settings  # noqa
 import logging
 import mimetypes
 from base64 import b64encode
@@ -16,7 +17,6 @@ from torch import autocast
 
 import esrgan_upscaler
 from logging_settings import LOGGING
-from settings import settings
 from universal_pipeline import StableDiffusionUniversalPipeline, preprocess, preprocess_mask
 from utils import base64url_to_image, image_to_base64url
 

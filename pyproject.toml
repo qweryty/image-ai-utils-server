@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "generator-server"
+name = "image-ai-utils-server"
 version = "0.1.0"
 description = ""
 authors = ["Sergey Morozov <sergey@morozov.top>"]
