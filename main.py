@@ -1,25 +1,35 @@
 import logging
 import mimetypes
-from base64 import b64encode, b64decode
+from base64 import b64encode
 from enum import Enum
 from io import BytesIO
 from typing import Optional, List, Tuple
 
 import torch
 import uvicorn
-from PIL import Image
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi import status
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field
 from torch import autocast
 
 import esrgan_upscaler
+from logging_settings import LOGGING
+from settings import settings
 from universal_pipeline import StableDiffusionUniversalPipeline, preprocess, preprocess_mask
 from utils import base64url_to_image, image_to_base64url
 
 logger = logging.getLogger(__name__)
+security = HTTPBasic()
 
-app = FastAPI()
+
+async def authorize(credentials: HTTPBasicCredentials = Depends(security)):
+    if credentials.username != settings.USERNAME or credentials.password != settings.PASSWORD:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+
+
+app = FastAPI(dependencies=[Depends(authorize)])
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 MIN_SEED = -0x8000_0000_0000_0000
@@ -165,7 +175,7 @@ def text_to_image(request: TextToImageRequest) -> ImageArrayResponse:
 
 
 @app.post('/image_to_image')
-def image_to_image(request: ImageToImageRequest) -> ImageArrayResponse:
+async def image_to_image(request: ImageToImageRequest) -> ImageArrayResponse:
     source_image = base64url_to_image(request.source_image)
     aspect_ratio = source_image.width / source_image.height
     size = size_from_aspect_ratio(aspect_ratio)
@@ -190,12 +200,12 @@ def image_to_image(request: ImageToImageRequest) -> ImageArrayResponse:
 
 
 @app.post('/gobig')
-def gobig(request: GoBigRequest) -> UpscaleResponse:
+async def gobig(request: GoBigRequest) -> UpscaleResponse:
     pass
 
 
 @app.post('/upscale')
-def upscale(request: UpscaleRequest) -> UpscaleResponse:
+async def upscale(request: UpscaleRequest) -> UpscaleResponse:
     # TODO multiple steps to make bigger than 4x
     return UpscaleResponse(
         image=image_to_base64url(
@@ -204,5 +214,10 @@ def upscale(request: UpscaleRequest) -> UpscaleResponse:
     )
 
 
+@app.get('/ping')
+async def ping():
+    return
+
+
 if __name__ == '__main__':
-    uvicorn.run(app, host='0.0.0.0', port=8000)
+    uvicorn.run(app, host=settings.HOST, port=settings.PORT, log_config=LOGGING)
