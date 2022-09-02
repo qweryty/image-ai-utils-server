@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  # Triggers the workflow on push or pull request events but only for the "master" branch
+  push:
+    tags:
+      - "v*"
+
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    name: "Build Windows"
+    runs-on: windows-latest
+    steps:
+      - uses: "actions/checkout@v3"
+      - uses: "actions/setup-python@v4"
+        with:
+          python-version: "3.9"
+      - name: build
+        run: |
+          pip install poetry
+          poetry install
+          pip install pyinstaller
+          pyinstaller main.py --hidden-import colorlog --collect_all huggingface_hub --additional-hooks-dir pyinstaller_hooks
+          copy .env.example dist\main\.env
+          cd dist\main\
+          mkdir models
+          wget -P models https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth
+          wget -P models https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-animevideov3.pth
+          wget -P models https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth
+          wget -P models https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth
+          mkdir basicsr\archs basicsr\data basicsr\losses basicsr\models
+          mkdir realesrgan\archs realesrgan\data realesrgan\losses realesrgan\models
+
+          tar -acvf ../image_ai_utils_windows.zip *
+      - uses: actions/upload-artifact@v3
+        with:
+          name: windows-build
+          path: image_ai_utils_windows_krita510.zip
+
+  release:
+    name: "Release"
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v3
+        with:
+          name: linux-build
+      - uses: actions/download-artifact@v3
+        with:
+          name: windows-build
+      - uses: "marvinpinto/action-automatic-releases@latest"
+        with:
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          prerelease: false
+          draft: true
+          files: |
+            *.zip
