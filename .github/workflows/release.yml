@@ -22,7 +22,7 @@ jobs:
           pip install poetry
           poetry install
           pip install pyinstaller
-          pyinstaller main.py --hidden-import colorlog --collect_all huggingface_hub --additional-hooks-dir pyinstaller_hooks
+          pyinstaller main.py --hidden-import colorlog --collect-all huggingface_hub --additional-hooks-dir pyinstaller_hooks
           copy .env.example dist\main\.env
           cd dist\main\
           mkdir models
