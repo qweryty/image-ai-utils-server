@@ -37,7 +37,7 @@ jobs:
       - uses: actions/upload-artifact@v3
         with:
           name: windows-build
-          path: image_ai_utils_windows_krita510.zip
+          path: dist/image_ai_utils_windows.zip
 
   release:
     name: "Release"
