@@ -35,11 +35,11 @@ jobs:
           mkdir basicsr\archs, basicsr\data, basicsr\losses, basicsr\models
           mkdir realesrgan\archs, realesrgan\data, realesrgan\losses, realesrgan\models
 
-          tar -acvf ../image_ai_utils_windows.zip *
+          tar -acvf ../image_ai_utils_windows.7z *
       - uses: actions/upload-artifact@v3
         with:
           name: windows-build
-          path: dist/image_ai_utils_windows.zip
+          path: dist/image_ai_utils_windows.7z
 
   release:
     name: "Release"
@@ -55,4 +55,4 @@ jobs:
           prerelease: false
           draft: true
           files: |
-            *.zip
+            *.7z
