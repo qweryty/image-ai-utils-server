@@ -35,7 +35,7 @@ jobs:
           mkdir basicsr\archs, basicsr\data, basicsr\losses, basicsr\models
           mkdir realesrgan\archs, realesrgan\data, realesrgan\losses, realesrgan\models
 
-          tar -acvf ../image_ai_utils_windows.7z *
+          & "C:/Program Files/7-Zip/7z.exe" a -r ..\image_ai_utils_windows.7z *
       - uses: actions/upload-artifact@v3
         with:
           name: windows-build
