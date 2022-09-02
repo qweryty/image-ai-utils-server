@@ -30,8 +30,8 @@ jobs:
           curl -L https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-animevideov3.pth -o models
           curl -L https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth -o models
           curl -L https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth -o models
-          mkdir basicsr\archs basicsr\data basicsr\losses basicsr\models
-          mkdir realesrgan\archs realesrgan\data realesrgan\losses realesrgan\models
+          mkdir basicsr\archs, basicsr\data, basicsr\losses, basicsr\models
+          mkdir realesrgan\archs, realesrgan\data, realesrgan\losses, realesrgan\models
 
           tar -acvf ../image_ai_utils_windows.zip *
       - uses: actions/upload-artifact@v3
