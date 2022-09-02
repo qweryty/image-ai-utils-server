@@ -19,6 +19,8 @@ jobs:
           python-version: "3.9"
       - name: build
         run: |
+          python -m venv .venv
+          .venv\Scripts\activate
           pip install poetry
           poetry install
           pip install pyinstaller
