@@ -12,7 +12,6 @@ scipy = "^1.9.0"
 fastapi = "^0.79.1"
 gunicorn = "^20.1.0"
 uvicorn = "^0.18.2"
-uvloop = "^0.16.0"
 torch = { version="^1.12.1", source="torch" }
 pydantic = "^1.9.2"
 Pillow = "^9.2.0"
