@@ -14,7 +14,7 @@ from tqdm.auto import tqdm
 from transformers import CLIPFeatureExtractor, CLIPTextModel, CLIPTokenizer
 
 
-def preprocess(image: Image.Image):
+def preprocess(image: Image.Image) -> torch.FloatTensor:
     image = image.convert('RGB')
     w, h = image.size
     w, h = map(lambda x: x - x % 64, (w, h))  # resize to integer multiple of 64
@@ -25,7 +25,7 @@ def preprocess(image: Image.Image):
     return 2.0 * image - 1.0
 
 
-def preprocess_mask(mask: Image.Image):
+def preprocess_mask(mask: Image.Image) -> torch.FloatTensor:
     mask = mask.convert('L')
     w, h = mask.size
     w, h = map(lambda x: x - x % 64, (w, h))  # resize to integer multiple of 64
@@ -40,6 +40,12 @@ def preprocess_mask(mask: Image.Image):
     mask = np.array(mask).astype(np.float32) / 255.0
     mask = torch.from_numpy(mask)
     return mask
+
+
+def mask_overlay(
+        first: torch.FloatTensor, second: torch.FloatTensor, mask: torch.FloatTensor
+) -> torch.FloatTensor:
+    return first * (1 - mask) + second * mask
 
 
 class StableDiffusionUniversalPipeline(StableDiffusionPipeline):
@@ -76,36 +82,46 @@ class StableDiffusionUniversalPipeline(StableDiffusionPipeline):
         prompt: Union[str, List[str]],
         init_image: torch.FloatTensor,
         mask: Optional[torch.FloatTensor] = None,
+        alpha: Optional[torch.FloatTensor] = None,
         strength: float = 0.8,
         num_inference_steps: Optional[int] = 50,
         guidance_scale: Optional[float] = 7.5,
         eta: Optional[float] = 0.0,
         generator: Optional[torch.Generator] = None,
-        output_type: Optional[str] = "pil",
-        run_safety_checker: bool = False
+        output_type: Optional[str] = 'pil',
+        run_safety_checker: bool = False,
     ):
         if isinstance(prompt, str):
             batch_size = 1
         elif isinstance(prompt, list):
             batch_size = len(prompt)
         else:
-            raise ValueError(f"`prompt` has to be of type `str` or `list` but is {type(prompt)}")
+            raise ValueError(f'`prompt` has to be of type `str` or `list` but is {type(prompt)}')
 
         if strength < 0 or strength > 1:
-            raise ValueError(f"The value of strength should in [0.0, 1.0] but is {strength}")
+            raise ValueError(f'The value of strength should in [0.0, 1.0] but is {strength}')
 
         # set timesteps
-        accepts_offset = "offset" in set(inspect.signature(self.scheduler.set_timesteps).parameters.keys())
+        accepts_offset = 'offset' in set(
+            inspect.signature(self.scheduler.set_timesteps).parameters.keys()
+        )
         extra_set_kwargs = {}
         offset = 0
         if accepts_offset:
             offset = 1
-            extra_set_kwargs["offset"] = 1
+            extra_set_kwargs['offset'] = 1
 
         self.scheduler.set_timesteps(num_inference_steps, **extra_set_kwargs)
 
         # encode the init image into latents and scale the latents
         init_latents = self._scale_and_encode(init_image)
+        if alpha is not None:
+            # Replacing transparent area with noise
+            init_latents = mask_overlay(
+                init_latents,
+                torch.randn(init_latents.shape, generator=generator, device=self.device),
+                alpha
+            )
         init_latents_orig = init_latents
 
         # prepare init_latents noise to latents
@@ -124,10 +140,10 @@ class StableDiffusionUniversalPipeline(StableDiffusionPipeline):
         # get prompt text embeddings
         text_input = self.tokenizer(
             prompt,
-            padding="max_length",
+            padding='max_length',
             max_length=self.tokenizer.model_max_length,
             truncation=True,
-            return_tensors="pt",
+            return_tensors='pt',
         )
         text_embeddings = self.text_encoder(text_input.input_ids.to(self.device))[0]
 
@@ -139,7 +155,7 @@ class StableDiffusionUniversalPipeline(StableDiffusionPipeline):
         if do_classifier_free_guidance:
             max_length = text_input.input_ids.shape[-1]
             uncond_input = self.tokenizer(
-                [""] * batch_size, padding="max_length", max_length=max_length, return_tensors="pt"
+                [''] * batch_size, padding='max_length', max_length=max_length, return_tensors='pt'
             )
             uncond_embeddings = self.text_encoder(uncond_input.input_ids.to(self.device))[0]
 
@@ -152,31 +168,40 @@ class StableDiffusionUniversalPipeline(StableDiffusionPipeline):
         # eta (η) is only used with the DDIMScheduler, it will be ignored for other schedulers.
         # eta corresponds to η in DDIM paper: https://arxiv.org/abs/2010.02502
         # and should be between [0, 1]
-        accepts_eta = "eta" in set(inspect.signature(self.scheduler.step).parameters.keys())
+        accepts_eta = 'eta' in set(inspect.signature(self.scheduler.step).parameters.keys())
         extra_step_kwargs = {}
         if accepts_eta:
-            extra_step_kwargs["eta"] = eta
+            extra_step_kwargs['eta'] = eta
 
         latents = init_latents
         t_start = max(num_inference_steps - init_timestep + offset, 0)
         for i, t in tqdm(enumerate(self.scheduler.timesteps[t_start:])):
             # expand the latents if we are doing classifier free guidance
-            latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+            if do_classifier_free_guidance:
+                latent_model_input = torch.cat([latents] * 2)
+            else:
+                latent_model_input = latents
 
             # predict the noise residual
-            noise_pred = self.unet(latent_model_input, t, encoder_hidden_states=text_embeddings)["sample"]
+            noise_pred = self.unet(
+                latent_model_input, t, encoder_hidden_states=text_embeddings
+            )['sample']
 
             # perform guidance
             if do_classifier_free_guidance:
                 noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+                noise_pred = noise_pred_uncond + guidance_scale * (
+                        noise_pred_text - noise_pred_uncond
+                )
 
             # compute the previous noisy sample x_t -> x_t-1
-            latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs)["prev_sample"]
+            latents = self.scheduler.step(
+                noise_pred, t, latents, **extra_step_kwargs
+            )['prev_sample']
 
             if mask is not None:
                 init_latents_proper = self.scheduler.add_noise(init_latents_orig, noise, t)
-                latents = init_latents_proper * (1 - mask) + latents * mask
+                latents = mask_overlay(init_latents_proper, latents, mask)
 
         # scale and decode the image latents with vae
         image = self._scale_and_decode(latents)
@@ -185,12 +210,16 @@ class StableDiffusionUniversalPipeline(StableDiffusionPipeline):
         image = image.cpu().permute(0, 2, 3, 1).numpy()
 
         if run_safety_checker:
-            safety_cheker_input = self.feature_extractor(self.numpy_to_pil(image), return_tensors="pt").to(self.device)
-            image, has_nsfw_concept = self.safety_checker(images=image, clip_input=safety_cheker_input.pixel_values)
+            safety_cheker_input = self.feature_extractor(
+                self.numpy_to_pil(image), return_tensors='pt'
+            ).to(self.device)
+            image, has_nsfw_concept = self.safety_checker(
+                images=image, clip_input=safety_cheker_input.pixel_values
+            )
         else:
             has_nsfw_concept = False
 
-        if output_type == "pil":
+        if output_type == 'pil':
             image = self.numpy_to_pil(image)
 
-        return {"sample": image, "nsfw_content_detected": has_nsfw_concept}
+        return {'sample': image, 'nsfw_content_detected': has_nsfw_concept}

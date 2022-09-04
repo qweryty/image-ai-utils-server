@@ -74,6 +74,9 @@ class TextToImageRequest(BaseDiffusionRequest):
 class ImageToImageRequest(BaseDiffusionRequest):
     source_image: bytes
     strength: float = Field(0.8, ge=0, le=1)
+
+
+class InpaintingRequest(ImageToImageRequest):
     mask: Optional[bytes] = None
 
 
@@ -181,6 +184,34 @@ async def image_to_image(request: ImageToImageRequest) -> ImageArrayResponse:
     size = size_from_aspect_ratio(aspect_ratio)
 
     source_image = source_image.resize(size)
+
+    with autocast('cuda'):
+        preprocessed_source_image = preprocess(source_image).to(pipeline.device)
+        preprocessed_alpha = None
+        if source_image.mode == 'RGBA':
+            preprocessed_alpha = 1 - preprocess_mask(
+                source_image.getchannel('A')
+            ).to(pipeline.device)
+
+        if preprocessed_alpha is not None and not preprocessed_alpha.any():
+            preprocessed_alpha = None
+
+    return do_diffusion(
+        request,
+        pipeline.image_to_image,
+        init_image=preprocessed_source_image,
+        strength=request.strength,
+        alpha=preprocessed_alpha,
+    )
+
+
+@app.post('/inpainting')
+async def inpainting(request: InpaintingRequest) -> ImageArrayResponse:
+    source_image = base64url_to_image(request.source_image)
+    aspect_ratio = source_image.width / source_image.height
+    size = size_from_aspect_ratio(aspect_ratio)
+
+    source_image = source_image.resize(size)
     mask = None
     if request.mask:
         mask = base64url_to_image(request.mask).resize(size)
@@ -190,12 +221,33 @@ async def image_to_image(request: ImageToImageRequest) -> ImageArrayResponse:
         preprocessed_mask = None
         if mask is not None:
             preprocessed_mask = preprocess_mask(mask).to(pipeline.device)
+
+        if preprocessed_mask is not None and not preprocessed_mask.any():
+            preprocessed_mask = None
+
+        preprocessed_alpha = None
+        if source_image.mode == 'RGBA':
+            preprocessed_alpha = 1 - preprocess_mask(
+                source_image.getchannel('A')
+            ).to(pipeline.device)
+
+        if preprocessed_alpha is not None and not preprocessed_alpha.any():
+            preprocessed_alpha = None
+
+        if preprocessed_alpha is not None:
+            if preprocessed_mask is not None:
+                preprocessed_mask = torch.max(preprocessed_mask, preprocessed_alpha)
+            else:
+                preprocessed_mask = preprocessed_alpha
+
+    # TODO return error if mask empty
     return do_diffusion(
         request,
         pipeline.image_to_image,
         init_image=preprocessed_source_image,
         strength=request.strength,
-        mask=preprocessed_mask
+        mask=preprocessed_mask,
+        alpha=preprocessed_alpha,
     )
 
 
