@@ -1,24 +1,28 @@
+import functools
+
 from settings import settings  # noqa
+from logging_settings import LOGGING  # noqa
+
+import json
 import logging
 import mimetypes
 from base64 import b64encode
-from enum import Enum
 from io import BytesIO
-from typing import Optional, List, Tuple
+from typing import Callable
 
 import torch
 import uvicorn
-from fastapi import FastAPI, HTTPException, Depends
-from fastapi import status
+from fastapi import FastAPI, HTTPException, Depends, WebSocket, status, WebSocketDisconnect
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from pydantic import BaseModel, Field
 from torch import autocast
 
 import esrgan_upscaler
-from logging_settings import LOGGING
+from request_models import BaseDiffusionRequest, ImageArrayResponse, ImageToImageRequest, \
+    TextToImageRequest, GoBigRequest, UpscaleResponse, UpscaleRequest, InpaintingRequest, \
+    WebSocketResponseStatus
 from universal_pipeline import StableDiffusionUniversalPipeline, preprocess, preprocess_mask
-from utils import base64url_to_image, image_to_base64url
+from utils import base64url_to_image, image_to_base64url, size_from_aspect_ratio
 
 logger = logging.getLogger(__name__)
 security = HTTPBasic()
@@ -29,19 +33,47 @@ async def authorize(credentials: HTTPBasicCredentials = Depends(security)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
 
 
+async def authorize_web_socket(websocket: WebSocket) -> bool:
+    credentials = await websocket.receive_json()
+    if credentials.get('username') != settings.USERNAME or \
+            credentials.get('password') != settings.PASSWORD:
+        await websocket.close(status.WS_1008_POLICY_VIOLATION)
+        return False
+
+    return True
+
+
+def websocket_handler(path, app):
+    def decorator(handler):
+        @functools.wraps(handler)
+        async def wrapper(websocket: WebSocket):
+            await websocket.accept()
+            try:
+                if not await authorize_web_socket(websocket):
+                    return
+
+                await handler(websocket)
+            except WebSocketDisconnect:
+                return
+
+        return app.websocket(path)(wrapper)
+    return decorator
+
+
 app = FastAPI(dependencies=[Depends(authorize)])
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
-MIN_SEED = -0x8000_0000_0000_0000
-MAX_SEED = 0xffff_ffff_ffff_ffff
-
-# TODO universal pipeline to optimize memory
-pipeline = StableDiffusionUniversalPipeline.from_pretrained(
-    'CompVis/stable-diffusion-v1-4',
-    revision='fp16',
-    torch_dtype=torch.bfloat16,
-    use_auth_token=True
-).to('cuda')
+try:
+    pipeline = StableDiffusionUniversalPipeline.from_pretrained(
+        'CompVis/stable-diffusion-v1-4',
+        revision='fp16',
+        torch_dtype=torch.bfloat16,
+        use_auth_token=True,
+        cache_dir=settings.DIFFUSERS_CACHE_PATH,
+    ).to('cuda')
+except Exception as e:
+    logger.exception(e)
+    raise e
 
 
 def dummy_checker(images, **kwargs): return images, False
@@ -50,98 +82,80 @@ def dummy_checker(images, **kwargs): return images, False
 pipeline.safety_checker = dummy_checker  # Disabling safety
 
 
-class ImageFormat(str, Enum):
-    PNG = 'PNG'
-    JPEG = 'JPEG'
-    BMP = 'BMP'
-
-
-class BaseDiffusionRequest(BaseModel):
-    prompt: str = Field(...)
-    num_variants: int = Field(6, gt=0)
-    output_format: ImageFormat = ImageFormat.PNG
-    num_inference_steps: int = Field(50, gt=0)
-    guidance_scale: float = Field(7.5)
-    seed: Optional[int] = Field(None, ge=MIN_SEED, le=MAX_SEED)
-    batch_size: int = Field(7, gt=0)  # TODO determine automatically
-    try_smaller_batch_on_fail: bool = True
-
-
-class TextToImageRequest(BaseDiffusionRequest):
-    aspect_ratio: float = Field(1., gt=0)  # width/height
-
-
-class ImageToImageRequest(BaseDiffusionRequest):
-    source_image: bytes
-    strength: float = Field(0.8, ge=0, le=1)
-
-
-class InpaintingRequest(ImageToImageRequest):
-    mask: Optional[bytes] = None
-
-
-class GoBigRequest(BaseDiffusionRequest):
-    image: bytes
-    use_real_esrgan: bool = True
-    init_strength: float = Field(.5, ge=0, le=1)
-    target_width: int = Field(..., gt=0)
-    target_height: int = Field(..., gt=0)
-
-
-class UpscaleRequest(BaseModel):
-    image: bytes
-    target_width: int = Field(..., gt=0)
-    target_height: int = Field(..., gt=0)
-
-
-class ImageArrayResponse(BaseModel):
-    images: List[bytes]
-
-
-class UpscaleResponse(BaseModel):
-    image: bytes
-
-
-def do_diffusion(request: BaseDiffusionRequest, diffusion_method, **kwargs) -> ImageArrayResponse:
+async def do_diffusion(
+        request: BaseDiffusionRequest,
+        diffusion_method: Callable,
+        websocket: WebSocket,
+        **kwargs
+) -> ImageArrayResponse:
     if request.seed is not None:
         generator = torch.Generator('cuda').manual_seed(request.seed)
     else:
         generator = None
 
     with autocast('cuda'):
-        batch_size = request.batch_size
-        while True:
-            try:
-                num_batches = request.num_variants // batch_size
-                prompts = [request.prompt] * batch_size
-                last_batch_size = request.num_variants - batch_size * num_batches
-                images = []
-                for i in range(num_batches):
-                    new_images = diffusion_method(
-                        prompt=prompts,
-                        num_inference_steps=request.num_inference_steps,
-                        generator=generator,
-                        guidance_scale=request.guidance_scale,
-                        **kwargs
-                    )['sample']
-                    images.extend(new_images)
+        with torch.inference_mode():
+            for batch_size in range(min(request.batch_size, request.num_variants), 0, -1):
+                try:
+                    num_batches = request.num_variants // batch_size
+                    prompts = [request.prompt] * batch_size
+                    last_batch_size = request.num_variants - batch_size * num_batches
+                    images = []
 
-                if last_batch_size:
-                    new_images = diffusion_method(
-                        prompt=[request.prompt] * last_batch_size,
-                        num_inference_steps=request.num_inference_steps,
-                        generator=generator,
-                        guidance_scale=request.guidance_scale,
-                        **kwargs
-                    )['sample']
-                    images.extend(new_images)
-                break
-            except RuntimeError as e:
-                if request.try_smaller_batch_on_fail and batch_size > 1:
-                    logger.warning(f'Batch size {batch_size} was too large, trying smaller')
-                    batch_size -= 1
-                else:
-                    raise e
+                    for i in range(num_batches):
+                        async def progress_callback(batch_step: int, total_batch_steps: int):
+                            current_step = i * total_batch_steps + batch_step
+                            total_steps = num_batches * total_batch_steps
+                            if last_batch_size:
+                                total_steps += total_batch_steps
+                            progress = current_step / total_steps
+                            await websocket.send_json(
+                                {'status': WebSocketResponseStatus.PROGRESS, 'progress': progress}
+                            )
+
+                        new_images = (await diffusion_method(
+                            prompt=prompts,
+                            num_inference_steps=request.num_inference_steps,
+                            generator=generator,
+                            guidance_scale=request.guidance_scale,
+                            progress_callback=progress_callback,
+                            **kwargs
+                        ))['sample']
+                        images.extend(new_images)
+
+                    if last_batch_size:
+                        async def progress_callback(batch_step: int, total_batch_steps: int):
+                            current_step = num_batches * total_batch_steps + batch_step
+                            total_steps = (num_batches + 1) * total_batch_steps
+                            progress = current_step / total_steps
+                            await websocket.send_json(
+                                {'status': WebSocketResponseStatus.PROGRESS, 'progress': progress}
+                            )
+
+                        new_images = (await diffusion_method(
+                            prompt=[request.prompt] * last_batch_size,
+                            num_inference_steps=request.num_inference_steps,
+                            generator=generator,
+                            guidance_scale=request.guidance_scale,
+                            progress_callback=progress_callback,
+                            **kwargs
+                        ))['sample']
+                        images.extend(new_images)
+                    break
+                except RuntimeError as e:
+                    if request.try_smaller_batch_on_fail:
+                        logger.warning(f'Batch size {batch_size} was too large, trying smaller')
+                    else:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f'Couldn\'t fit {batch_size} images with such aspect ratio into '
+                                   f'memory. Try using smaller batch size or enabling '
+                                   f'try_smaller_batch_on_fail option'
+                        )
+            else:
+                raise HTTPException(
+                    status_code=400, detail='Couldn\'t fit image with such aspect ratio into memory'
+                )
 
     encoded_images = []
     data_string = f'data:{mimetypes.types_map[f".{request.output_format.lower()}"]};base64,' \
@@ -154,31 +168,23 @@ def do_diffusion(request: BaseDiffusionRequest, diffusion_method, **kwargs) -> I
     return ImageArrayResponse(images=encoded_images)
 
 
-def size_from_aspect_ratio(aspect_ratio: float) -> Tuple[int, int]:
-    if aspect_ratio > 1:
-        height = 512
-        width = int(height * aspect_ratio)
-        width -= width % 64
-    else:
-        width = 512
-        height = int(width / aspect_ratio)
-        height -= height % 64
-
-    return width, height
-
-
-# TODO task queue and web sockets?
+# TODO task queue?
 #  (or can set up an external scheduler and use this as internal endpoint)
-@app.post('/text_to_image')
-def text_to_image(request: TextToImageRequest) -> ImageArrayResponse:
+@websocket_handler('/text_to_image', app)
+async def text_to_image(websocket: WebSocket):
+    request = TextToImageRequest(**(await websocket.receive_json()))
     width, height = size_from_aspect_ratio(request.aspect_ratio)
-    return do_diffusion(
-        request, pipeline.__call__, height=height, width=width
+    response = await do_diffusion(
+        request, pipeline.text_to_image, websocket, height=height, width=width
+    )
+    await websocket.send_json(
+        {'status': WebSocketResponseStatus.FINISHED, 'result': json.loads(response.json())}
     )
 
 
-@app.post('/image_to_image')
-async def image_to_image(request: ImageToImageRequest) -> ImageArrayResponse:
+@websocket_handler('/image_to_image', app)
+async def image_to_image(websocket: WebSocket):
+    request = ImageToImageRequest(**(await websocket.receive_json()))
     source_image = base64url_to_image(request.source_image)
     aspect_ratio = source_image.width / source_image.height
     size = size_from_aspect_ratio(aspect_ratio)
@@ -196,17 +202,23 @@ async def image_to_image(request: ImageToImageRequest) -> ImageArrayResponse:
         if preprocessed_alpha is not None and not preprocessed_alpha.any():
             preprocessed_alpha = None
 
-    return do_diffusion(
+    response = await do_diffusion(
         request,
         pipeline.image_to_image,
+        websocket,
         init_image=preprocessed_source_image,
         strength=request.strength,
         alpha=preprocessed_alpha,
     )
+    await websocket.send_json(
+        {'status': WebSocketResponseStatus.FINISHED, 'result': json.loads(response.json())}
+    )
 
 
-@app.post('/inpainting')
-async def inpainting(request: InpaintingRequest) -> ImageArrayResponse:
+@websocket_handler('/inpainting', app)
+async def inpainting(websocket: WebSocket):
+
+    request = InpaintingRequest(**(await websocket.receive_json()))
     source_image = base64url_to_image(request.source_image)
     aspect_ratio = source_image.width / source_image.height
     size = size_from_aspect_ratio(aspect_ratio)
@@ -241,13 +253,17 @@ async def inpainting(request: InpaintingRequest) -> ImageArrayResponse:
                 preprocessed_mask = preprocessed_alpha
 
     # TODO return error if mask empty
-    return do_diffusion(
+    response = await do_diffusion(
         request,
         pipeline.image_to_image,
+        websocket,
         init_image=preprocessed_source_image,
         strength=request.strength,
         mask=preprocessed_mask,
         alpha=preprocessed_alpha,
+    )
+    await websocket.send_json(
+        {'status': WebSocketResponseStatus.FINISHED, 'result': json.loads(response.json())}
     )
 
 

@@ -1,4 +1,5 @@
-import logging
+import logging.config
+import os.path
 
 from settings import settings
 
@@ -10,7 +11,13 @@ LOGGING = {
             'level': settings.LOG_LEVEL.upper(),
             'class': 'logging.StreamHandler',
             'stream': 'ext://sys.stdout',
-            'formatter': 'verbose'
+            'formatter': 'verbose',
+        },
+        'file_handler': {
+            'level': settings.FILE_LOG_LEVEL.upper(),
+            'formatter': 'verbose',
+            'class': 'logging.FileHandler',
+            'filename': os.path.abspath(os.path.join(os.path.dirname(__file__), 'messages.log'))
         },
         'blackhole': {'level': 'DEBUG', 'class': 'logging.NullHandler'},
     },
@@ -28,13 +35,19 @@ LOGGING = {
         }
     },
     'loggers': {
-        'fastapi': {'level': 'INFO', 'handlers': ['default']},
-        'uvicorn.error': {'level': 'INFO', 'handlers': ['default'], 'propagate': False},
-        'uvicorn.access': {'level': 'INFO', 'handlers': ['default'], 'propagate': False},
-        'uvicorn': {'level': 'INFO', 'handlers': ['default'], 'propagate': False},
+        'fastapi': {'level': 'INFO', 'handlers': ['default', 'file_handler']},
+        'uvicorn.error': {
+            'level': 'INFO', 'handlers': ['default', 'file_handler'], 'propagate': False
+        },
+        'uvicorn.access': {
+            'level': 'INFO', 'handlers': ['default', 'file_handler'], 'propagate': False
+        },
+        'uvicorn': {
+            'level': 'INFO', 'handlers': ['default', 'file_handler'], 'propagate': False
+        },
         '': {
             'level': settings.LOG_LEVEL.upper(),
-            'handlers': ['default'],
+            'handlers': ['default', 'file_handler'],
             'propagate': True,
         },
 

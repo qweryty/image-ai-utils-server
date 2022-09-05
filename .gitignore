@@ -7,4 +7,6 @@ models
 .env
 build
 dist
+diffusers_cache
 main.spec
+messages.log

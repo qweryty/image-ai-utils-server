@@ -1,6 +1,7 @@
 import mimetypes
 from base64 import b64decode, b64encode
 from io import BytesIO
+from typing import Tuple
 
 from PIL import Image
 
@@ -16,3 +17,16 @@ def image_to_base64url(image: Image.Image, output_format: str = 'PNG') -> bytes:
 def base64url_to_image(source: bytes) -> Image.Image:
     _, data = source.split(b',')
     return Image.open(BytesIO(b64decode(data)))
+
+
+def size_from_aspect_ratio(aspect_ratio: float) -> Tuple[int, int]:
+    if aspect_ratio > 1:
+        height = 512
+        width = int(height * aspect_ratio)
+        width -= width % 64
+    else:
+        width = 512
+        height = int(width / aspect_ratio)
+        height -= height % 64
+
+    return width, height
