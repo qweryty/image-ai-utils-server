@@ -8,9 +8,8 @@ import numpy as np
 import torch
 from PIL import Image
 from diffusers import AutoencoderKL, DDIMScheduler, PNDMScheduler, \
-    UNet2DConditionModel, StableDiffusionPipeline, LMSDiscreteScheduler, DiffusionPipeline
-from diffusers.pipelines.stable_diffusion import StableDiffusionSafetyChecker
-from transformers import CLIPFeatureExtractor, CLIPTextModel, CLIPTokenizer
+    UNet2DConditionModel, LMSDiscreteScheduler, DiffusionPipeline
+from transformers import CLIPTextModel, CLIPTokenizer
 
 
 def preprocess(image: Image.Image) -> torch.FloatTensor:
@@ -65,8 +64,6 @@ class StableDiffusionUniversalPipeline(DiffusionPipeline):
             unet=unet,
             scheduler=scheduler,
         )
-
-        del self.vae.encoder
 
     def _scale_and_encode(self, image: torch.FloatTensor):
         latents = self.vae.encode(image).sample()
