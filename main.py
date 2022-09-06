@@ -1,4 +1,5 @@
 import functools
+from json import JSONDecodeError
 
 from exceptions import BatchSizeIsTooLargeException, AspectRatioTooWideException, \
     BaseWebSocketException
@@ -57,6 +58,11 @@ def websocket_handler(path, app):
                 await handler(websocket)
             except BaseWebSocketException as e:
                 await websocket.close(status.WS_1008_POLICY_VIOLATION, e.message)
+            except JSONDecodeError:
+                await websocket.close(
+                    status.WS_1008_POLICY_VIOLATION,
+                    'Server received message that is not in json format'
+                )
             except WebSocketDisconnect:
                 return
 
