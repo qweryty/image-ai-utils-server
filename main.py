@@ -1,5 +1,7 @@
 import functools
 
+from exceptions import BatchSizeIsTooLargeException, AspectRatioTooWideException, \
+    BaseWebSocketException
 from settings import settings  # noqa
 from logging_settings import LOGGING  # noqa
 
@@ -37,7 +39,7 @@ async def authorize_web_socket(websocket: WebSocket) -> bool:
     credentials = await websocket.receive_json()
     if credentials.get('username') != settings.USERNAME or \
             credentials.get('password') != settings.PASSWORD:
-        await websocket.close(status.WS_1008_POLICY_VIOLATION)
+        await websocket.close(status.WS_1008_POLICY_VIOLATION, 'Authorization error')
         return False
 
     return True
@@ -53,10 +55,13 @@ def websocket_handler(path, app):
                     return
 
                 await handler(websocket)
+            except BaseWebSocketException as e:
+                await websocket.close(status.WS_1008_POLICY_VIOLATION, e.message)
             except WebSocketDisconnect:
                 return
 
         return app.websocket(path)(wrapper)
+
     return decorator
 
 
@@ -74,12 +79,6 @@ try:
 except Exception as e:
     logger.exception(e)
     raise e
-
-
-def dummy_checker(images, **kwargs): return images, False
-
-
-pipeline.safety_checker = dummy_checker  # Disabling safety
 
 
 async def do_diffusion(
@@ -120,7 +119,7 @@ async def do_diffusion(
                             guidance_scale=request.guidance_scale,
                             progress_callback=progress_callback,
                             **kwargs
-                        ))['sample']
+                        ))
                         images.extend(new_images)
 
                     if last_batch_size:
@@ -139,23 +138,16 @@ async def do_diffusion(
                             guidance_scale=request.guidance_scale,
                             progress_callback=progress_callback,
                             **kwargs
-                        ))['sample']
+                        ))
                         images.extend(new_images)
                     break
                 except RuntimeError as e:
                     if request.try_smaller_batch_on_fail:
                         logger.warning(f'Batch size {batch_size} was too large, trying smaller')
                     else:
-                        raise HTTPException(
-                            status_code=400,
-                            detail=f'Couldn\'t fit {batch_size} images with such aspect ratio into '
-                                   f'memory. Try using smaller batch size or enabling '
-                                   f'try_smaller_batch_on_fail option'
-                        )
+                        raise BatchSizeIsTooLargeException(batch_size)
             else:
-                raise HTTPException(
-                    status_code=400, detail='Couldn\'t fit image with such aspect ratio into memory'
-                )
+                raise AspectRatioTooWideException
 
     encoded_images = []
     data_string = f'data:{mimetypes.types_map[f".{request.output_format.lower()}"]};base64,' \
@@ -173,7 +165,7 @@ async def do_diffusion(
 @websocket_handler('/text_to_image', app)
 async def text_to_image(websocket: WebSocket):
     request = TextToImageRequest(**(await websocket.receive_json()))
-    width, height = size_from_aspect_ratio(request.aspect_ratio)
+    width, height = size_from_aspect_ratio(request.aspect_ratio, request.scaling_mode)
     response = await do_diffusion(
         request, pipeline.text_to_image, websocket, height=height, width=width
     )
@@ -187,7 +179,7 @@ async def image_to_image(websocket: WebSocket):
     request = ImageToImageRequest(**(await websocket.receive_json()))
     source_image = base64url_to_image(request.source_image)
     aspect_ratio = source_image.width / source_image.height
-    size = size_from_aspect_ratio(aspect_ratio)
+    size = size_from_aspect_ratio(aspect_ratio, request.scaling_mode)
 
     source_image = source_image.resize(size)
 
@@ -217,11 +209,10 @@ async def image_to_image(websocket: WebSocket):
 
 @websocket_handler('/inpainting', app)
 async def inpainting(websocket: WebSocket):
-
     request = InpaintingRequest(**(await websocket.receive_json()))
     source_image = base64url_to_image(request.source_image)
     aspect_ratio = source_image.width / source_image.height
-    size = size_from_aspect_ratio(aspect_ratio)
+    size = size_from_aspect_ratio(aspect_ratio, request.scaling_mode)
 
     source_image = source_image.resize(size)
     mask = None

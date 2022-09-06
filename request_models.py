@@ -19,6 +19,11 @@ MIN_SEED = -0x8000_0000_0000_0000
 MAX_SEED = 0xffff_ffff_ffff_ffff
 
 
+class ScalingMode(str, Enum):
+    SHRINK = 'shrink'
+    GROW = 'grow'
+
+
 class BaseDiffusionRequest(BaseModel):
     prompt: str = Field(...)
     num_variants: int = Field(4, gt=0)
@@ -26,8 +31,9 @@ class BaseDiffusionRequest(BaseModel):
     num_inference_steps: int = Field(50, gt=0)
     guidance_scale: float = Field(7.5)
     seed: Optional[int] = Field(None, ge=MIN_SEED, le=MAX_SEED)
-    batch_size: int = Field(7, gt=0)  # TODO determine automatically
+    batch_size: int = Field(7, gt=0)
     try_smaller_batch_on_fail: bool = True
+    scaling_mode: ScalingMode = ScalingMode.GROW
 
 
 class TextToImageRequest(BaseDiffusionRequest):

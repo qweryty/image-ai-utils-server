@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from PIL import Image
 from diffusers import AutoencoderKL, DDIMScheduler, PNDMScheduler, \
-    UNet2DConditionModel, StableDiffusionPipeline, LMSDiscreteScheduler
+    UNet2DConditionModel, StableDiffusionPipeline, LMSDiscreteScheduler, DiffusionPipeline
 from diffusers.pipelines.stable_diffusion import StableDiffusionSafetyChecker
 from transformers import CLIPFeatureExtractor, CLIPTextModel, CLIPTokenizer
 
@@ -47,7 +47,7 @@ def mask_overlay(
     return first * (1 - mask) + second * mask
 
 
-class StableDiffusionUniversalPipeline(StableDiffusionPipeline):
+class StableDiffusionUniversalPipeline(DiffusionPipeline):
     def __init__(
         self,
         vae: AutoencoderKL,
@@ -55,18 +55,18 @@ class StableDiffusionUniversalPipeline(StableDiffusionPipeline):
         tokenizer: CLIPTokenizer,
         unet: UNet2DConditionModel,
         scheduler: Union[DDIMScheduler, PNDMScheduler],
-        safety_checker: StableDiffusionSafetyChecker,
-        feature_extractor: CLIPFeatureExtractor,
     ):
-        super().__init__(
+        super().__init__()
+        scheduler = scheduler.set_format("pt")
+        self.register_modules(
             vae=vae,
             text_encoder=text_encoder,
             tokenizer=tokenizer,
             unet=unet,
             scheduler=scheduler,
-            safety_checker=safety_checker,
-            feature_extractor=feature_extractor
         )
+
+        del self.vae.encoder
 
     def _scale_and_encode(self, image: torch.FloatTensor):
         latents = self.vae.encode(image).sample()
@@ -85,7 +85,6 @@ class StableDiffusionUniversalPipeline(StableDiffusionPipeline):
             eta: Optional[float] = 0.0,
             generator: Optional[torch.Generator] = None,
             latents: Optional[torch.FloatTensor] = None,
-            run_safety_checker: bool = False,
             progress_callback: Optional[Callable[[int, int], Awaitable]] = None
     ):
         if isinstance(prompt, str):
@@ -200,22 +199,9 @@ class StableDiffusionUniversalPipeline(StableDiffusionPipeline):
         image = (image / 2 + 0.5).clamp(0, 1)
         image = image.cpu().permute(0, 2, 3, 1).numpy()
 
-        if run_safety_checker:
-            # run safety checker
-            safety_cheker_input = self.feature_extractor(
-                self.numpy_to_pil(image),
-                return_tensors='pt'
-            ).to(self.device)
-            image, has_nsfw_concept = self.safety_checker(
-                images=image,
-                clip_input=safety_cheker_input.pixel_values
-            )
-        else:
-            has_nsfw_concept = False
-
         image = self.numpy_to_pil(image)
 
-        return {'sample': image, 'nsfw_content_detected': has_nsfw_concept}
+        return image
 
     async def image_to_image(
         self,
@@ -228,7 +214,6 @@ class StableDiffusionUniversalPipeline(StableDiffusionPipeline):
         guidance_scale: Optional[float] = 7.5,
         eta: Optional[float] = 0.0,
         generator: Optional[torch.Generator] = None,
-        run_safety_checker: bool = False,
         progress_callback: Optional[Callable[[int, int], Awaitable]] = None
     ):
         if isinstance(prompt, str):
@@ -351,17 +336,6 @@ class StableDiffusionUniversalPipeline(StableDiffusionPipeline):
 
         image = (image / 2 + 0.5).clamp(0, 1)
         image = image.cpu().permute(0, 2, 3, 1).numpy()
-
-        if run_safety_checker:
-            safety_cheker_input = self.feature_extractor(
-                self.numpy_to_pil(image), return_tensors='pt'
-            ).to(self.device)
-            image, has_nsfw_concept = self.safety_checker(
-                images=image, clip_input=safety_cheker_input.pixel_values
-            )
-        else:
-            has_nsfw_concept = False
-
         image = self.numpy_to_pil(image)
 
-        return {'sample': image, 'nsfw_content_detected': has_nsfw_concept}
+        return image
