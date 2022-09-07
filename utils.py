@@ -1,4 +1,5 @@
 import mimetypes
+import os
 from base64 import b64decode, b64encode
 from io import BytesIO
 from typing import Tuple
@@ -32,3 +33,7 @@ def size_from_aspect_ratio(aspect_ratio: float, scaling_mode: ScalingMode) -> Tu
         height = int(width / aspect_ratio)
         height -= height % 64
     return width, height
+
+
+def resolve_path(path: str) -> str:
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), path))

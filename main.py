@@ -274,7 +274,10 @@ async def upscale(request: UpscaleRequest) -> UpscaleResponse:
     # TODO multiple steps to make bigger than 4x
     return UpscaleResponse(
         image=image_to_base64url(
-            esrgan_upscaler.upscale(image=base64url_to_image(request.image))
+            esrgan_upscaler.upscale(
+                image=base64url_to_image(request.image),
+                model_type=request.model
+            )
         )
     )
 

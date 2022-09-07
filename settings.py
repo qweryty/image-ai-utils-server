@@ -5,6 +5,8 @@ from diffusers.utils import DIFFUSERS_CACHE
 from dotenv import load_dotenv
 from pydantic import BaseSettings, Field, validator
 
+from utils import resolve_path
+
 
 class Settings(BaseSettings):
     USERNAME: str = Field(..., env='IMAGE_AI_UTILS_USERNAME')
@@ -21,7 +23,7 @@ class Settings(BaseSettings):
         if path is None or os.path.isabs(path):
             return path
 
-        return os.path.abspath(os.path.join(os.path.dirname(__file__), path))
+        return resolve_path(path)
 
 
 load_dotenv()

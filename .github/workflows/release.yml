@@ -29,9 +29,13 @@ jobs:
           cd dist\main\
           mkdir models
           curl -L https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth -o models/realesr-general-x4v3.pth
-          curl -L https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-animevideov3.pth -o models/realesr-animevideov3.pth
-          curl -L https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth -o models/RealESRGAN_x4plus_anime_6B.pth
           curl -L https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth -o models/RealESRGAN_x4plus.pth
+          curl -L https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth -o models/RealESRGAN_x2plus.pth
+          curl -L https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.1/RealESRNet_x4plus.pth -o models/RealESRNet_x4plus.pth
+          curl -L https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.1/ESRGAN_SRx4_DF2KOST_official-ff704c30.pth -o models/ESRGAN_SRx4_DF2KOST_official-ff704c30.pth
+          curl -L https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth -o models/RealESRGAN_x4plus_anime_6B.pth
+          curl -L https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-animevideov3.pth -o models/realesr-animevideov3.pth
+          
           mkdir basicsr\archs, basicsr\data, basicsr\losses, basicsr\models
           mkdir realesrgan\archs, realesrgan\data, realesrgan\losses, realesrgan\models
 

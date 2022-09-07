@@ -4,6 +4,26 @@ from typing import Optional, List
 from pydantic import BaseModel, Field
 
 
+class ESRGANModel(str, Enum):
+    # General
+    GENERAL_X4_V3 = 'general_x4_v3'
+    X4_PLUS = 'x4_plus'
+    X2_PLUS = 'x2_plus'
+    ESRNET_X4_PLUS = 'x4_plus'
+    OFFICIAL_X4 = 'official_x4'
+
+    # Anime/Illustrations
+    X4_PLUS_ANIME_6B = 'x4_plus_anime_6b'
+
+    # Anime video
+    ANIME_VIDEO_V3 = 'anime_video_v3'
+
+
+class ScalingMode(str, Enum):
+    SHRINK = 'shrink'
+    GROW = 'grow'
+
+
 class ImageFormat(str, Enum):
     PNG = 'PNG'
     JPEG = 'JPEG'
@@ -17,11 +37,6 @@ class WebSocketResponseStatus(str, Enum):
 
 MIN_SEED = -0x8000_0000_0000_0000
 MAX_SEED = 0xffff_ffff_ffff_ffff
-
-
-class ScalingMode(str, Enum):
-    SHRINK = 'shrink'
-    GROW = 'grow'
 
 
 class BaseDiffusionRequest(BaseModel):
@@ -59,6 +74,7 @@ class GoBigRequest(BaseDiffusionRequest):
 
 class UpscaleRequest(BaseModel):
     image: bytes
+    model: ESRGANModel = ESRGANModel.GENERAL_X4_V3
     target_width: int = Field(..., gt=0)
     target_height: int = Field(..., gt=0)
 
