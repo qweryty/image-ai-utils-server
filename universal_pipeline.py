@@ -47,6 +47,12 @@ def mask_overlay(
 
 
 class StableDiffusionUniversalPipeline(DiffusionPipeline):
+    vae: AutoencoderKL
+    text_encoder: CLIPTextModel
+    tokenizer: CLIPTokenizer
+    unet: UNet2DConditionModel
+    scheduler: Union[DDIMScheduler, PNDMScheduler]
+
     def __init__(
         self,
         vae: AutoencoderKL,

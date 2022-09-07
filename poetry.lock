@@ -243,17 +243,17 @@ python-versions = ">=2.6, !=3.0.*, !=3.1.*, !=3.2.*"
 
 [[package]]
 name = "gfpgan"
-version = "1.3.4"
+version = "1.3.5"
 description = "GFPGAN aims at developing Practical Algorithms for Real-world Face Restoration"
 category = "main"
 optional = false
 python-versions = "*"
 
 [package.dependencies]
-basicsr = ">=1.3.4.0"
-facexlib = ">=0.2.3"
+basicsr = ">=1.4.2"
+facexlib = ">=0.2.5"
 lmdb = "*"
-numpy = "<1.21"
+numpy = "*"
 opencv-python = "*"
 pyyaml = "*"
 scipy = "*"
@@ -1243,8 +1243,8 @@ future = [
     {file = "future-0.18.2.tar.gz", hash = "sha256:b1bead90b70cf6ec3f0710ae53a525360fa360d306a86583adc6bf83a4db537d"},
 ]
 gfpgan = [
-    {file = "gfpgan-1.3.4-py3-none-any.whl", hash = "sha256:27352f777f1e61c17b1c92fb1debe4914167d9337c81d026d00f47717a7ef2dc"},
-    {file = "gfpgan-1.3.4.tar.gz", hash = "sha256:cf5454efeb647da17101150543e70a08cd1e4755ac29fc610a691e545340a9cb"},
+    {file = "gfpgan-1.3.5-py3-none-any.whl", hash = "sha256:0cdc3cf459323278cd30b4af8af82f86e957d08706a135e7ea8421d730e461a8"},
+    {file = "gfpgan-1.3.5.tar.gz", hash = "sha256:8b4ccdf4dc51339bbd07869460a75e7d0eaf89ce057fa9e991b814ea8d5cb013"},
 ]
 google-auth = [
     {file = "google-auth-2.11.0.tar.gz", hash = "sha256:ed65ecf9f681832298e29328e1ef0a3676e3732b2e56f41532d45f70a22de0fb"},
