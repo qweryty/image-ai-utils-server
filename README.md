@@ -57,3 +57,8 @@ You can look into `messages.log` file, it will contain all the errors encountere
 For now only GPUs with 10gb or more VRAM are prooven to be working. It is possible to decrease memory requirements further
 optimizations are possible, but for now I'm waiting for [this PR](https://github.com/huggingface/diffusers/pull/366) to be 
 merged and new version of diffusers library repo to be released
+
+### `OSError: Windows requires Developer Mode to be activated`
+During the first run `diffusers` library needs to create some symlinks which requires developer mode or admin rights. 
+If you don't want to activate developer mode, right mouse click on main.exe and choose "Run as administrator", 
+you only need to do it once, next time it will work without extra privileges.
