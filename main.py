@@ -83,6 +83,8 @@ try:
         use_auth_token=True,
         cache_dir=settings.DIFFUSERS_CACHE_PATH,
     ).to('cuda')
+    if settings.USE_OPTIMIZED_MODE:
+        pipeline.enable_attention_slicing()
 except Exception as e:
     logger.exception(e)
     raise e

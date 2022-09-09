@@ -41,22 +41,25 @@ During the first run it will download stable diffusion models to directory, spec
 TODO
 
 ## `.env` File Fields Description
-- `IMAGE_AI_UTILS_USERNAME` - Username which the plugin uses to access the server (you don't need to change this field for local installation)
+- `IMAGE_AI_UTILS_USERNAME` - username which the plugin uses to access the server (you don't need to change this field for local installation)
 - `IMAGE_AI_UTILS_PASSWORD` - password which the plugin uses to access the server (you don't need to change this field for local installation)
 - `HOST` - URL or IP addres of the server; one server can serve multiple URLs or IPs, `0.0.0.0` will  (you don't need to change this field for local installation)
 - `PORT` - server port (you don't need to change this field for local installation, unless it conflicts with some other service)
 - `PYTORCH_CUDA_ALLOC_CONF` - see https://pytorch.org/docs/stable/notes/cuda.html#memory-management
 - `DIFFUSERS_CACHE_PATH` - the path where downloaded stable diffusion models will be stored
 - `HUGGING_FACE_HUB_TOKEN` - token required to download stable diffusion models
+- `USE_OPTIMIZED_MODE` - when enabled, stable diffusion will consume less VRAM with the cost of speed
 
 ## Common Problems
 ### main.exe closes shortly after startup
 You can look into `messages.log` file, it will contain all the errors encountered during the run of the program. If you still can't solve your problem, please [report an issue](https://github.com/qweryty/image-ai-utils-server/issues/new) and attach this file in the comment
 
 ### `RuntimeError: CUDA out of memory`
-For now only GPUs with 10gb or more VRAM are prooven to be working. It is possible to decrease memory requirements further
-optimizations are possible, but for now I'm waiting for [this PR](https://github.com/huggingface/diffusers/pull/366) to be 
-merged and new version of diffusers library repo to be released
+Try enabling `USE_OPTIMIZED_MODE` in .env file.
+
+If that didn't help and you have less than 4GB of VRAM, you are probably out of luck and need better hardware.
+
+Another option would be to rent a VPS with GPU and running your server there.
 
 ### `OSError: Windows requires Developer Mode to be activated`
 During the first run `diffusers` library needs to create some symlinks which requires developer mode or admin rights. 

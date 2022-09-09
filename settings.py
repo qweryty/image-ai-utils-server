@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = Field('DEBUG', env='LOG_LEVEL')
     FILE_LOG_LEVEL: str = Field('ERROR', env='FILE_LOG_LEVEL')
     DIFFUSERS_CACHE_PATH: str = Field(DIFFUSERS_CACHE, env='DIFFUSERS_CACHE_PATH')
+    USE_OPTIMIZED_MODE: bool = Field(True, env='USE_OPTIMIZED_MODE')
 
     # TODO make abspath from current file
     @validator('DIFFUSERS_CACHE_PATH')
