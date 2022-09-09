@@ -48,7 +48,7 @@ TODO
 - `PYTORCH_CUDA_ALLOC_CONF` - see https://pytorch.org/docs/stable/notes/cuda.html#memory-management
 - `DIFFUSERS_CACHE_PATH` - the path where downloaded stable diffusion models will be stored
 - `HUGGING_FACE_HUB_TOKEN` - token required to download stable diffusion models
-- `USE_OPTIMIZED_MODE` - when enabled, stable diffusion will consume less VRAM with the cost of speed
+- `USE_OPTIMIZED_MODE` - when enabled, stable diffusion will consume less VRAM at the expense of 10% speed
 
 ## Common Problems
 ### main.exe closes shortly after startup
