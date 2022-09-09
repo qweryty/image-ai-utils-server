@@ -9,7 +9,7 @@ import torch
 from PIL import Image
 from diffusers import AutoencoderKL, DDIMScheduler, PNDMScheduler, \
     UNet2DConditionModel, LMSDiscreteScheduler, DiffusionPipeline
-from transformers import CLIPTextModel, CLIPTokenizer
+from transformers import CLIPTextModel, CLIPTokenizer, CLIPFeatureExtractor
 
 
 def preprocess(image: Image.Image) -> torch.FloatTensor:
@@ -60,23 +60,25 @@ class StableDiffusionUniversalPipeline(DiffusionPipeline):
         tokenizer: CLIPTokenizer,
         unet: UNet2DConditionModel,
         scheduler: Union[DDIMScheduler, PNDMScheduler],
+        feature_extractor: CLIPFeatureExtractor,
     ):
         super().__init__()
-        scheduler = scheduler.set_format("pt")
+        scheduler = scheduler.set_format('pt')
         self.register_modules(
             vae=vae,
             text_encoder=text_encoder,
             tokenizer=tokenizer,
             unet=unet,
             scheduler=scheduler,
+            feature_extractor=feature_extractor,
         )
 
-    def _scale_and_encode(self, image: torch.FloatTensor):
-        latents = self.vae.encode(image).sample()
-        return 0.18215 * latents
+    def _scale_and_encode(self, image: torch.FloatTensor, generator: Optional[torch.Generator]):
+        latent_dist = self.vae.encode(image).latent_dist
+        return 0.18215 * latent_dist.sample(generator=generator)
 
     def _scale_and_decode(self, latents):
-        return self.vae.decode(1 / 0.18215 * latents)
+        return self.vae.decode(1 / 0.18215 * latents).sample
 
     async def text_to_image(
             self,
@@ -89,7 +91,7 @@ class StableDiffusionUniversalPipeline(DiffusionPipeline):
             generator: Optional[torch.Generator] = None,
             latents: Optional[torch.FloatTensor] = None,
             progress_callback: Optional[Callable[[int, int], Awaitable]] = None
-    ):
+    ) -> List[Image.Image]:
         if isinstance(prompt, str):
             batch_size = 1
         elif isinstance(prompt, list):
@@ -218,7 +220,7 @@ class StableDiffusionUniversalPipeline(DiffusionPipeline):
         eta: Optional[float] = 0.0,
         generator: Optional[torch.Generator] = None,
         progress_callback: Optional[Callable[[int, int], Awaitable]] = None
-    ):
+    ) -> List[Image.Image]:
         if isinstance(prompt, str):
             batch_size = 1
         elif isinstance(prompt, list):
@@ -242,7 +244,7 @@ class StableDiffusionUniversalPipeline(DiffusionPipeline):
         self.scheduler.set_timesteps(num_inference_steps, **extra_set_kwargs)
 
         # encode the init image into latents and scale the latents
-        init_latents = self._scale_and_encode(init_image)
+        init_latents = self._scale_and_encode(init_image, generator)
         if alpha is not None:
             # Replacing transparent area with noise
             init_latents = mask_overlay(
@@ -250,10 +252,10 @@ class StableDiffusionUniversalPipeline(DiffusionPipeline):
                 torch.randn(init_latents.shape, generator=generator, device=self.device),
                 alpha
             )
-        init_latents_orig = init_latents
 
-        # prepare init_latents noise to latents
+        # Expand init_latents for batch_size
         init_latents = torch.cat([init_latents] * batch_size)
+        init_latents_orig = init_latents
 
         # get the original timestep using init_timestep
         init_timestep = int(num_inference_steps * strength) + offset
@@ -316,7 +318,7 @@ class StableDiffusionUniversalPipeline(DiffusionPipeline):
             # predict the noise residual
             noise_pred = self.unet(
                 latent_model_input, t, encoder_hidden_states=text_embeddings
-            )['sample']
+            ).sample
 
             # perform guidance
             if do_classifier_free_guidance:
@@ -328,7 +330,7 @@ class StableDiffusionUniversalPipeline(DiffusionPipeline):
             # compute the previous noisy sample x_t -> x_t-1
             latents = self.scheduler.step(
                 noise_pred, t, latents, **extra_step_kwargs
-            )['prev_sample']
+            ).prev_sample
 
             if mask is not None:
                 init_latents_proper = self.scheduler.add_noise(init_latents_orig, noise, t)

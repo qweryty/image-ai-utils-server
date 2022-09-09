@@ -3,6 +3,7 @@ from json import JSONDecodeError
 
 from exceptions import BatchSizeIsTooLargeException, AspectRatioTooWideException, \
     BaseWebSocketException
+from gobig import do_gobig
 from settings import settings  # noqa
 from logging_settings import LOGGING  # noqa
 
@@ -21,7 +22,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from torch import autocast
 
 import esrgan_upscaler
-from request_models import BaseDiffusionRequest, ImageArrayResponse, ImageToImageRequest, \
+from request_models import BaseImageGenerationRequest, ImageArrayResponse, ImageToImageRequest, \
     TextToImageRequest, GoBigRequest, UpscaleResponse, UpscaleRequest, InpaintingRequest, \
     WebSocketResponseStatus
 from universal_pipeline import StableDiffusionUniversalPipeline, preprocess, preprocess_mask
@@ -88,7 +89,7 @@ except Exception as e:
 
 
 async def do_diffusion(
-        request: BaseDiffusionRequest,
+        request: BaseImageGenerationRequest,
         diffusion_method: Callable,
         websocket: WebSocket,
         **kwargs
@@ -264,9 +265,40 @@ async def inpainting(websocket: WebSocket):
     )
 
 
-@app.post('/gobig')
-async def gobig(request: GoBigRequest) -> UpscaleResponse:
-    pass
+@websocket_handler('/gobig', app)
+async def gobig(websocket: WebSocket):
+    request = GoBigRequest(**(await websocket.receive_json()))
+
+    if request.seed is not None:
+        generator = torch.Generator('cuda').manual_seed(request.seed)
+    else:
+        generator = None
+
+    async def progress_callback(progress: float):
+        await websocket.send_json(
+            {'status': WebSocketResponseStatus.PROGRESS, 'progress': progress}
+        )
+
+    upscaled = await do_gobig(
+        input_image=base64url_to_image(request.image),
+        prompt=request.prompt,
+        maximize=request.maximize,
+        target_width=request.target_width,
+        target_height=request.target_height,
+        overlap=request.overlap,
+        use_real_esrgan=request.use_real_esrgan,
+        esrgan_model=request.esrgan_model,
+        pipeline=pipeline,
+        strength=request.strength,
+        num_inference_steps=request.num_inference_steps,
+        guidance_scale=request.guidance_scale,
+        generator=generator,
+        progress_callback=progress_callback
+    )
+    response = UpscaleResponse(image=image_to_base64url(upscaled))
+    await websocket.send_json(
+        {'status': WebSocketResponseStatus.FINISHED, 'result': json.loads(response.json())}
+    )
 
 
 @app.post('/upscale')

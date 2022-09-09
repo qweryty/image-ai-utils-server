@@ -126,7 +126,7 @@ python-versions = ">=3.6"
 
 [[package]]
 name = "diffusers"
-version = "0.2.3"
+version = "0.3.0"
 description = "Diffusers"
 category = "main"
 optional = false
@@ -134,7 +134,7 @@ python-versions = ">=3.6.0"
 
 [package.dependencies]
 filelock = "*"
-huggingface-hub = ">=0.8.1,<1.0"
+huggingface-hub = ">=0.8.1"
 importlib-metadata = "*"
 numpy = "*"
 Pillow = "*"
@@ -143,10 +143,10 @@ requests = "*"
 torch = ">=1.4"
 
 [package.extras]
-dev = ["accelerate", "black (>=22.0,<23.0)", "datasets", "flake8 (>=3.8.3)", "hf-doc-builder", "isort (>=5.5.4)", "modelcards", "pytest", "tensorboard"]
+dev = ["accelerate", "black (==22.3)", "datasets", "flake8 (>=3.8.3)", "hf-doc-builder", "isort (>=5.5.4)", "modelcards", "onnxruntime", "pytest", "pytest-timeout", "pytest-xdist", "scipy", "tensorboard", "transformers"]
 docs = ["hf-doc-builder"]
-quality = ["black (>=22.0,<23.0)", "flake8 (>=3.8.3)", "isort (>=5.5.4)"]
-test = ["pytest"]
+quality = ["black (==22.3)", "flake8 (>=3.8.3)", "hf-doc-builder", "isort (>=5.5.4)"]
+test = ["datasets", "onnxruntime", "pytest", "pytest-timeout", "pytest-xdist", "scipy", "transformers"]
 training = ["accelerate", "datasets", "modelcards", "tensorboard"]
 
 [[package]]
@@ -1170,7 +1170,7 @@ testing = ["func-timeout", "jaraco.itertools", "pytest (>=6)", "pytest-black (>=
 [metadata]
 lock-version = "1.1"
 python-versions = ">=3.9,<3.10" # 3.9 required for gfpgan which requires older version of numpy
-content-hash = "b797e125dd1c240939d4da2929baf7cf09c5712f102e310a6c672c32e3776756"
+content-hash = "af5d3d7b890d03810ac7ecf761653adcb40199128f996125939f894c480e98d6"
 
 [metadata.files]
 absl-py = [
@@ -1217,8 +1217,8 @@ cycler = [
     {file = "cycler-0.11.0.tar.gz", hash = "sha256:9c87405839a19696e837b3b818fed3f5f69f16f1eec1a1ad77e043dcea9c772f"},
 ]
 diffusers = [
-    {file = "diffusers-0.2.3-py3-none-any.whl", hash = "sha256:3a9502e73b311a0ba517cbac1fec3048b7bf8f65bd76edc4b4b6f276efd0c416"},
-    {file = "diffusers-0.2.3.tar.gz", hash = "sha256:b15eb021dff8123334b5fef1f5ef9c2d37118c88b4b97c171484189f85ec06da"},
+    {file = "diffusers-0.3.0-py3-none-any.whl", hash = "sha256:191612381924c25bb2462a7e68ebca5dca6c5b6b02a478865b473c9dee7991be"},
+    {file = "diffusers-0.3.0.tar.gz", hash = "sha256:416c92fa5d16c0daf95d2031b902cfb42a9dc28dbd5ecea1c566205a4c8ad8df"},
 ]
 facexlib = [
     {file = "facexlib-0.2.5-py3-none-any.whl", hash = "sha256:cc7ceb56c5424319c47223cf75eef6828c34c66082707c6eb35b95d39779f02d"},

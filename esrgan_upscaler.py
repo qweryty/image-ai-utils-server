@@ -34,7 +34,8 @@ def upscale(
         half: bool = True,
         outscale: float = 4
 ):
-    if model_type in [ESRGANModel.X4_PLUS, ESRGANModel.ESRNET_X4_PLUS, ESRGANModel.OFFICIAL_X4]:  # x4 RRDBNet model
+    # x4 RRDBNet model
+    if model_type in [ESRGANModel.X4_PLUS, ESRGANModel.ESRNET_X4_PLUS, ESRGANModel.OFFICIAL_X4]:
         model = RRDBNet(
             num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=4
         )

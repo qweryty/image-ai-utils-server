@@ -41,21 +41,24 @@ MAX_SEED = 0xffff_ffff_ffff_ffff
 
 class BaseDiffusionRequest(BaseModel):
     prompt: str = Field(...)
-    num_variants: int = Field(4, gt=0)
     output_format: ImageFormat = ImageFormat.PNG
     num_inference_steps: int = Field(50, gt=0)
     guidance_scale: float = Field(7.5)
     seed: Optional[int] = Field(None, ge=MIN_SEED, le=MAX_SEED)
     batch_size: int = Field(7, gt=0)
     try_smaller_batch_on_fail: bool = True
+
+
+class BaseImageGenerationRequest(BaseDiffusionRequest):
+    num_variants: int = Field(4, gt=0)
     scaling_mode: ScalingMode = ScalingMode.GROW
 
 
-class TextToImageRequest(BaseDiffusionRequest):
+class TextToImageRequest(BaseImageGenerationRequest):
     aspect_ratio: float = Field(1., gt=0)  # width/height
 
 
-class ImageToImageRequest(BaseDiffusionRequest):
+class ImageToImageRequest(BaseImageGenerationRequest):
     source_image: bytes
     strength: float = Field(0.8, ge=0, le=1)
 
@@ -67,9 +70,12 @@ class InpaintingRequest(ImageToImageRequest):
 class GoBigRequest(BaseDiffusionRequest):
     image: bytes
     use_real_esrgan: bool = True
-    init_strength: float = Field(.5, ge=0, le=1)
+    esrgan_model: ESRGANModel = ESRGANModel.GENERAL_X4_V3
+    maximize: bool = True
+    strength: float = Field(.5, ge=0, le=1)
     target_width: int = Field(..., gt=0)
     target_height: int = Field(..., gt=0)
+    overlap: int = Field(64, gt=0, lt=512)
 
 
 class UpscaleRequest(BaseModel):
@@ -77,6 +83,7 @@ class UpscaleRequest(BaseModel):
     model: ESRGANModel = ESRGANModel.GENERAL_X4_V3
     target_width: int = Field(..., gt=0)
     target_height: int = Field(..., gt=0)
+    maximize: bool = True
 
 
 class ImageArrayResponse(BaseModel):

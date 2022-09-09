@@ -6,7 +6,7 @@ authors = ["Sergey Morozov <sergey@morozov.top>"]
 
 [tool.poetry.dependencies]
 python = ">=3.9,<3.10" # 3.9 required for gfpgan which requires older version of numpy
-diffusers = "0.2.3"
+diffusers = "^0.3.0"
 transformers = "^4.21.1"
 scipy = "^1.9.0"
 fastapi = "^0.79.1"
