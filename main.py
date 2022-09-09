@@ -305,15 +305,19 @@ async def gobig(websocket: WebSocket):
 
 @app.post('/upscale')
 async def upscale(request: UpscaleRequest) -> UpscaleResponse:
-    # TODO multiple steps to make bigger than 4x
-    return UpscaleResponse(
-        image=image_to_base64url(
-            esrgan_upscaler.upscale(
-                image=base64url_to_image(request.image),
-                model_type=request.model
-            )
+    try:
+        source_image = base64url_to_image(request.image)
+        while source_image.width < request.target_width or source_image.height < request.target_height:
+            source_image = esrgan_upscaler.upscale(image=source_image, model_type=request.model)
+
+        if not request.maximize:
+            source_image = source_image.resize((request.target_width, request.target_height))
+
+        return UpscaleResponse(image=image_to_base64url(source_image))
+    except RuntimeError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail='Scaling factor or image is too large'
         )
-    )
 
 
 @app.get('/ping')

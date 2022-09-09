@@ -163,18 +163,14 @@ async def do_gobig(
     # create an alpha channel for compositing the slices
     alpha = Image.new('L', (slice_width, slice_height), color=0xFF)
     alpha_gradient = ImageDraw.Draw(alpha)
-    a = 0
-    i = 0
-    # int(overlap / 2) # we want the alpha gradient to be half the size of the overlap,
+    # we want the alpha gradient to be half the size of the overlap,
     # otherwise we always see some of the original background underneath
-    a_overlap = overlap
-    shape = ((slice_width, slice_height), (0, 0))
-    while i < overlap:
-        alpha_gradient.rectangle(shape, fill=a)
-        a += int(255 / a_overlap)
-        a = 255 if a > 255 else a
-        i += 1
+    alpha_overlap = int(overlap / 2)
+    for i in range(overlap):
         shape = ((slice_width - i, slice_height - i), (i, i))
+        fill = min(int(i * (255 / alpha_overlap)), 255)
+        alpha_gradient.rectangle(shape, fill=fill)
+        i += 1
     # now composite the slices together
     finished_slices = []
     for better_slice, x, y in better_slices:
