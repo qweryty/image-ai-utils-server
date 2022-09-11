@@ -2,6 +2,8 @@ import logging
 
 import numpy as np
 from PIL import Image
+
+from exceptions import CouldntFixFaceException
 from gfpgan import GFPGANer
 
 from esrgan_upscaler import get_upsampler
@@ -65,5 +67,8 @@ def restore_face(
         only_center_face=only_center_face,
         paste_back=True
     )
+
+    if restored_img is None:
+        raise CouldntFixFaceException
 
     return Image.fromarray(restored_img)
