@@ -1,17 +1,17 @@
+from settings import settings  # noqa
+from logging_settings import LOGGING  # noqa
+import asyncio
 import functools
 from json import JSONDecodeError
 
+from consts import WebSocketResponseStatus, GFPGANModel
 from exceptions import BatchSizeIsTooLargeException, AspectRatioTooWideException, \
     BaseWebSocketException
+import face_restoration
 from gobig import do_gobig
-from settings import settings  # noqa
-from logging_settings import LOGGING  # noqa
 
 import json
 import logging
-import mimetypes
-from base64 import b64encode
-from io import BytesIO
 from typing import Callable
 
 import torch
@@ -23,10 +23,10 @@ from torch import autocast
 
 import esrgan_upscaler
 from request_models import BaseImageGenerationRequest, ImageArrayResponse, ImageToImageRequest, \
-    TextToImageRequest, GoBigRequest, UpscaleResponse, UpscaleRequest, InpaintingRequest, \
-    WebSocketResponseStatus
+    TextToImageRequest, GoBigRequest, ImageResponse, UpscaleRequest, InpaintingRequest, \
+    FaceRestorationRequest
 from universal_pipeline import StableDiffusionUniversalPipeline, preprocess, preprocess_mask
-from utils import base64url_to_image, image_to_base64url, size_from_aspect_ratio
+from utils import base64url_to_image, image_to_base64url, size_from_aspect_ratio, download_models
 
 logger = logging.getLogger(__name__)
 security = HTTPBasic()
@@ -158,15 +158,7 @@ async def do_diffusion(
             else:
                 raise AspectRatioTooWideException
 
-    encoded_images = []
-    data_string = f'data:{mimetypes.types_map[f".{request.output_format.lower()}"]};base64,' \
-        .encode()
-    for image in images:
-        buffer = BytesIO()
-        image.save(buffer, format=request.output_format)
-        encoded_images.append(data_string + b64encode(buffer.getvalue()))
-
-    return ImageArrayResponse(images=encoded_images)
+    return ImageArrayResponse(images=images)
 
 
 # TODO task queue?
@@ -297,27 +289,48 @@ async def gobig(websocket: WebSocket):
         generator=generator,
         progress_callback=progress_callback
     )
-    response = UpscaleResponse(image=image_to_base64url(upscaled))
+    response = ImageResponse(image=image_to_base64url(upscaled))
     await websocket.send_json(
         {'status': WebSocketResponseStatus.FINISHED, 'result': json.loads(response.json())}
     )
 
 
 @app.post('/upscale')
-async def upscale(request: UpscaleRequest) -> UpscaleResponse:
+async def upscale(request: UpscaleRequest) -> ImageResponse:
     try:
         source_image = base64url_to_image(request.image)
-        while source_image.width < request.target_width or source_image.height < request.target_height:
+        while source_image.width < request.target_width or \
+                source_image.height < request.target_height:
             source_image = esrgan_upscaler.upscale(image=source_image, model_type=request.model)
 
         if not request.maximize:
             source_image = source_image.resize((request.target_width, request.target_height))
 
-        return UpscaleResponse(image=image_to_base64url(source_image))
+        return ImageResponse(image=image_to_base64url(source_image))
     except RuntimeError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail='Scaling factor or image is too large'
         )
+
+
+@app.post('/restore_face')
+async def restore_face(request: FaceRestorationRequest) -> ImageResponse:
+    if request.model_type == GFPGANModel.V1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='GFPGAN v1 model is not supported'
+        )
+    return ImageResponse(
+        image=face_restoration.restore_face(
+            image=base64url_to_image(request.image),
+            model_type=request.model_type,
+            use_real_esrgan=request.use_real_esrgan,
+            bg_tile=request.bg_tile,
+            upscale=request.upscale,
+            aligned=request.aligned,
+            only_center_face=request.only_center_face
+        )
+    )
 
 
 @app.get('/ping')
@@ -325,5 +338,10 @@ async def ping():
     return
 
 
+async def setup():
+    await download_models(face_restoration.GFPGAN_URLS)
+
+
 if __name__ == '__main__':
+    asyncio.run(setup())
     uvicorn.run(app, host=settings.HOST, port=settings.PORT, log_config=LOGGING)

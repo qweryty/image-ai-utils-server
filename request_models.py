@@ -1,42 +1,10 @@
-from enum import Enum
 from typing import Optional, List
 
-from pydantic import BaseModel, Field
+from PIL import Image
+from pydantic import BaseModel, Field, validator
 
-
-class ESRGANModel(str, Enum):
-    # General
-    GENERAL_X4_V3 = 'general_x4_v3'
-    X4_PLUS = 'x4_plus'
-    X2_PLUS = 'x2_plus'
-    ESRNET_X4_PLUS = 'x4_plus'
-    OFFICIAL_X4 = 'official_x4'
-
-    # Anime/Illustrations
-    X4_PLUS_ANIME_6B = 'x4_plus_anime_6b'
-
-    # Anime video
-    ANIME_VIDEO_V3 = 'anime_video_v3'
-
-
-class ScalingMode(str, Enum):
-    SHRINK = 'shrink'
-    GROW = 'grow'
-
-
-class ImageFormat(str, Enum):
-    PNG = 'PNG'
-    JPEG = 'JPEG'
-    BMP = 'BMP'
-
-
-class WebSocketResponseStatus(str, Enum):
-    FINISHED = 'finished'
-    PROGRESS = 'progress'
-
-
-MIN_SEED = -0x8000_0000_0000_0000
-MAX_SEED = 0xffff_ffff_ffff_ffff
+from consts import ImageFormat, MIN_SEED, MAX_SEED, ScalingMode, ESRGANModel, GFPGANModel
+from utils import image_to_base64url
 
 
 class BaseDiffusionRequest(BaseModel):
@@ -89,6 +57,26 @@ class UpscaleRequest(BaseModel):
 class ImageArrayResponse(BaseModel):
     images: List[bytes]
 
+    @validator('images', pre=True)
+    def images_to_bytes(cls, v: List):
+        return [image_to_base64url(image) if isinstance(image, Image.Image) else image for image in v]
 
-class UpscaleResponse(BaseModel):
+
+class ImageResponse(BaseModel):
     image: bytes
+
+    @validator('image', pre=True)
+    def image_to_bytes(cls, v):
+        if isinstance(v, Image.Image):
+            v = image_to_base64url(v)
+        return v
+
+
+class FaceRestorationRequest(BaseModel):
+    image: bytes
+    model_type: GFPGANModel
+    use_real_esrgan: bool = True
+    bg_tile: int = 400
+    upscale: int = 2
+    aligned: bool = False
+    only_center_face: bool = False

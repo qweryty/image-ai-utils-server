@@ -25,15 +25,13 @@ for key, value in MODEL_PATHS.items():
     MODEL_PATHS[key] = resolve_path(value)
 
 
-def upscale(
-        image: Image.Image,
-        model_type: ESRGANModel = ESRGANModel.GENERAL_X4_V3,
+def get_upsampler(
+        model_type: ESRGANModel,
         tile: int = 0,
         tile_pad: int = 10,
         pre_pad: int = 0,
         half: bool = True,
-        outscale: float = 4
-):
+) -> RealESRGANer:
     # x4 RRDBNet model
     if model_type in [ESRGANModel.X4_PLUS, ESRGANModel.ESRNET_X4_PLUS, ESRGANModel.OFFICIAL_X4]:
         model = RRDBNet(
@@ -67,8 +65,8 @@ def upscale(
     model_path = MODEL_PATHS[model_type]
     # restorer
     # TODO use gpu(available in newer version)
-    # TODO store upsampler
-    upsampler = RealESRGANer(
+    # TODO cache upsampler
+    return RealESRGANer(
         scale=netscale,
         model_path=model_path,
         model=model,
@@ -76,6 +74,20 @@ def upscale(
         tile_pad=tile_pad,
         pre_pad=pre_pad,
         half=not half,
+    )
+
+
+def upscale(
+        image: Image.Image,
+        model_type: ESRGANModel = ESRGANModel.GENERAL_X4_V3,
+        tile: int = 0,
+        tile_pad: int = 10,
+        pre_pad: int = 0,
+        half: bool = True,
+        outscale: float = 4
+):
+    upsampler = get_upsampler(
+        model_type=model_type, tile=tile, tile_pad=tile_pad, pre_pad=pre_pad, half=half
     )
 
     numpy_image = np.asarray(image)
