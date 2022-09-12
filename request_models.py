@@ -46,6 +46,13 @@ class GoBigRequest(BaseDiffusionRequest):
     overlap: int = Field(64, gt=0, lt=512)
 
 
+class MakeTilableRequest(BaseImageGenerationRequest):
+    source_image: bytes
+    border_width: int = Field(50, gt=0, lt=256)
+    border_softness: float = Field(.5, ge=0, le=1)
+    strength: float = Field(0.8, ge=0, le=1)
+
+
 class UpscaleRequest(BaseModel):
     image: bytes
     model: ESRGANModel = ESRGANModel.GENERAL_X4_V3
@@ -59,7 +66,19 @@ class ImageArrayResponse(BaseModel):
 
     @validator('images', pre=True)
     def images_to_bytes(cls, v: List):
-        return [image_to_base64url(image) if isinstance(image, Image.Image) else image for image in v]
+        return [
+            image_to_base64url(image) if isinstance(image, Image.Image) else image for image in v
+        ]
+
+
+class MakeTilableResponse(ImageArrayResponse):
+    mask: bytes
+
+    @validator('mask', pre=True)
+    def mask_to_bytes(cls, v):
+        if isinstance(v, Image.Image):
+            v = image_to_base64url(v)
+        return v
 
 
 class ImageResponse(BaseModel):

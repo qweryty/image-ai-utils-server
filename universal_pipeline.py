@@ -238,7 +238,7 @@ class StableDiffusionUniversalPipeline(DiffusionPipeline):
     async def image_to_image(
         self,
         prompt: Union[str, List[str]],
-        init_image: torch.FloatTensor,
+        init_image: Union[torch.FloatTensor, List[torch.FloatTensor]],
         mask: Optional[torch.FloatTensor] = None,
         alpha: Optional[torch.FloatTensor] = None,
         strength: float = 0.8,
@@ -258,6 +258,12 @@ class StableDiffusionUniversalPipeline(DiffusionPipeline):
         if strength < 0 or strength > 1:
             raise ValueError(f'The value of strength should in [0.0, 1.0] but is {strength}')
 
+        if isinstance(init_image, list) and len(init_image) != batch_size:
+            raise ValueError(
+                f'Length of list of init images({len(init_image)}) '
+                f'should be equal to batch_size({batch_size})'
+            )
+
         # set timesteps
         accepts_offset = 'offset' in set(
             inspect.signature(self.scheduler.set_timesteps).parameters.keys()
@@ -271,17 +277,33 @@ class StableDiffusionUniversalPipeline(DiffusionPipeline):
         self.scheduler.set_timesteps(num_inference_steps, **extra_set_kwargs)
 
         # encode the init image into latents and scale the latents
-        init_latents = self._scale_and_encode(init_image, generator)
-        if alpha is not None:
-            # Replacing transparent area with noise
-            init_latents = mask_overlay(
-                init_latents,
-                torch.randn(init_latents.shape, generator=generator, device=self.device),
-                alpha
-            )
+        if isinstance(init_image, list):
+            init_latents = []
+            for image in init_image:
+                latents = self._scale_and_encode(image, generator)
+                if alpha is not None:
+                    # Replacing transparent area with noise
+                    latents = mask_overlay(
+                        latents,
+                        torch.randn(latents.shape, generator=generator, device=self.device),
+                        alpha
+                    )
+                init_latents.append(latents)
 
-        # Expand init_latents for batch_size
-        init_latents = torch.cat([init_latents] * batch_size)
+            init_latents = torch.cat(init_latents)
+        else:
+            init_latents = self._scale_and_encode(init_image, generator)
+            if alpha is not None:
+                # Replacing transparent area with noise
+                init_latents = mask_overlay(
+                    init_latents,
+                    torch.randn(init_latents.shape, generator=generator, device=self.device),
+                    alpha
+                )
+
+            # Expand init_latents for batch_size
+            init_latents = torch.cat([init_latents] * batch_size)
+
         init_latents_orig = init_latents
 
         # get the original timestep using init_timestep

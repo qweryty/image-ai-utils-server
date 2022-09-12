@@ -1,3 +1,5 @@
+from PIL import ImageChops, Image, ImageDraw
+
 from settings import settings  # noqa
 from logging_settings import LOGGING  # noqa
 import asyncio
@@ -12,7 +14,7 @@ from gobig import do_gobig
 
 import json
 import logging
-from typing import Callable
+from typing import Callable, List, Dict, Any, Optional, Union
 
 import torch
 import uvicorn
@@ -24,7 +26,7 @@ from torch import autocast
 import esrgan_upscaler
 from request_models import BaseImageGenerationRequest, ImageArrayResponse, ImageToImageRequest, \
     TextToImageRequest, GoBigRequest, ImageResponse, UpscaleRequest, InpaintingRequest, \
-    FaceRestorationRequest
+    FaceRestorationRequest, MakeTilableRequest, MakeTilableResponse
 from universal_pipeline import StableDiffusionUniversalPipeline, preprocess, preprocess_mask
 from utils import base64url_to_image, image_to_base64url, size_from_aspect_ratio, download_models
 
@@ -94,13 +96,19 @@ async def do_diffusion(
         request: BaseImageGenerationRequest,
         diffusion_method: Callable,
         websocket: WebSocket,
+        batched_params: Optional[Dict[str, List[Any]]] = None,
+        return_images: bool = False,
+        progress_multiplier: float = 1.,
+        progress_offset: float = 0.,
         **kwargs
-) -> ImageArrayResponse:
+) -> Union[ImageArrayResponse, List[Image.Image]]:
     if request.seed is not None:
         generator = torch.Generator('cuda').manual_seed(request.seed)
     else:
         generator = None
 
+    if batched_params is None:
+        batched_params = {}
     with autocast('cuda'):
         with torch.inference_mode():
             for batch_size in range(min(request.batch_size, request.num_variants), 0, -1):
@@ -111,12 +119,17 @@ async def do_diffusion(
                     images = []
 
                     for i in range(num_batches):
+                        batch_kwargs = {}
+                        for key, value in batched_params.items():
+                            batch_kwargs[key] = value[i * batch_size: (i + 1) * batch_size]
+
                         async def progress_callback(batch_step: int, total_batch_steps: int):
                             current_step = i * total_batch_steps + batch_step
                             total_steps = num_batches * total_batch_steps
                             if last_batch_size:
                                 total_steps += total_batch_steps
-                            progress = current_step / total_steps
+                            progress = progress_multiplier * current_step / total_steps + \
+                                       progress_offset
                             await websocket.send_json(
                                 {'status': WebSocketResponseStatus.PROGRESS, 'progress': progress}
                             )
@@ -127,15 +140,21 @@ async def do_diffusion(
                             generator=generator,
                             guidance_scale=request.guidance_scale,
                             progress_callback=progress_callback,
+                            **batch_kwargs,
                             **kwargs
                         ))
                         images.extend(new_images)
 
                     if last_batch_size:
+                        batch_kwargs = {}
+                        for key, value in batched_params.items():
+                            batch_kwargs[key] = value[-last_batch_size:]
+
                         async def progress_callback(batch_step: int, total_batch_steps: int):
                             current_step = num_batches * total_batch_steps + batch_step
                             total_steps = (num_batches + 1) * total_batch_steps
-                            progress = current_step / total_steps
+                            progress = progress_multiplier * current_step / total_steps + \
+                                       progress_offset
                             await websocket.send_json(
                                 {'status': WebSocketResponseStatus.PROGRESS, 'progress': progress}
                             )
@@ -146,6 +165,7 @@ async def do_diffusion(
                             generator=generator,
                             guidance_scale=request.guidance_scale,
                             progress_callback=progress_callback,
+                            **batch_kwargs,
                             **kwargs
                         ))
                         images.extend(new_images)
@@ -158,7 +178,10 @@ async def do_diffusion(
             else:
                 raise AspectRatioTooWideException
 
-    return ImageArrayResponse(images=images)
+    if return_images:
+        return images
+    else:
+        return ImageArrayResponse(images=images)
 
 
 # TODO task queue?
@@ -330,6 +353,148 @@ async def restore_face(request: FaceRestorationRequest) -> ImageResponse:
             aligned=request.aligned,
             only_center_face=request.only_center_face
         )
+    )
+
+
+@websocket_handler('/make_tilable', app)
+async def make_tilable(websocket: WebSocket):
+    request = MakeTilableRequest(**(await websocket.receive_json()))
+    source_image = base64url_to_image(request.source_image)
+    aspect_ratio = source_image.width / source_image.height
+    size = size_from_aspect_ratio(aspect_ratio, request.scaling_mode)
+    horizontal_offset_image = ImageChops.offset(source_image.resize(size), int(size[0] / 2), 0)
+
+    # Horizontal offset
+    with autocast('cuda'):
+        preprocessed_horizontal_offset_image = preprocess(
+            horizontal_offset_image
+        ).to(pipeline.device)
+        preprocessed_alpha = None
+        if horizontal_offset_image.mode == 'RGBA':
+            preprocessed_alpha = 1 - preprocess_mask(
+                horizontal_offset_image.getchannel('A')
+            ).to(pipeline.device)
+
+        if preprocessed_alpha is not None and not preprocessed_alpha.any():
+            preprocessed_alpha = None
+
+        gradient_width = request.border_width * request.border_softness
+        if int(gradient_width) != 0:
+            gradient_step = 255 / gradient_width
+        else:
+            gradient_step = 255
+
+        horizontal_mask = Image.new('L', size, color=0x00)
+        start_gradient_x = size[0] / 2 - request.border_width
+        horizontal_draw = ImageDraw.Draw(horizontal_mask)
+        for i in range(int(gradient_width)):
+            fill_color = min(int(i * gradient_step), 255)
+            x = int(start_gradient_x + i)
+            width = (request.border_width - i) * 2
+            horizontal_draw.rectangle(((x, 0), (x + width, size[1])), fill=fill_color)
+        x = int(start_gradient_x + gradient_width)
+        width = (request.border_width - gradient_width) * 2
+        horizontal_draw.rectangle(((x, 0), (x + width, size[1])), fill=255)
+        horizontal_preprocessed_mask = preprocess_mask(horizontal_mask).to(pipeline.device)
+
+    horizontal_offset_result = await do_diffusion(
+        request,
+        pipeline.image_to_image,
+        websocket,
+        return_images=True,
+        progress_multiplier=1/3,
+        init_image=preprocessed_horizontal_offset_image,
+        mask=horizontal_preprocessed_mask,
+        strength=request.strength,
+        alpha=preprocessed_alpha,
+    )
+    '''horizontal_offset_result = [
+        Image.composite(image, horizontal_offset_image, horizontal_mask)
+        for image in horizontal_offset_result
+    ]'''
+
+    # Vertical offset
+    with autocast('cuda'):
+        preprocessed_vertical_offset_images = []
+        for image in horizontal_offset_result:
+            vertical_offset_image = ImageChops.offset(image, 0, int(size[1] / 2))
+            preprocessed_vertical_offset_images.append(
+                preprocess(vertical_offset_image).to(pipeline.device)
+            )
+
+        vertical_mask = Image.new('L', size, color=0x00)
+        start_gradient_y = size[1] / 2 - request.border_width
+        vertical_draw = ImageDraw.Draw(vertical_mask)
+        for i in range(int(gradient_width)):
+            fill_color = min(int(i * gradient_step), 255)
+            y = int(start_gradient_y + i)
+            height = (request.border_width - i) * 2
+            vertical_draw.rectangle(((0, y), (size[0], y + height)), fill=fill_color)
+
+        y = int(start_gradient_y + gradient_width)
+        height = (request.border_width - gradient_width) * 2
+        vertical_draw.rectangle(((0, y), (size[0], y + height)), fill=255)
+        vertical_preprocessed_mask = preprocess_mask(vertical_mask).to(pipeline.device)
+
+    vertical_offset_result = await do_diffusion(
+        request,
+        pipeline.image_to_image,
+        websocket,
+        return_images=True,
+        progress_multiplier=1/3,
+        progress_offset=1/3,
+        batched_params={'init_image': preprocessed_vertical_offset_images},
+        strength=request.strength,
+        mask=vertical_preprocessed_mask,
+    )
+
+    # Center
+    with autocast('cuda'):
+        preprocessed_center_offset_images = []
+        for image in vertical_offset_result:
+            center_offset_image = ImageChops.offset(image, -int(size[0] / 2), 0)
+            preprocessed_center_offset_images.append(
+                preprocess(center_offset_image).to(pipeline.device)
+            )
+
+        center_mask = Image.new('L', size, color=0x00)
+        center_draw = ImageDraw.Draw(center_mask)
+        for i in range(int(gradient_width)):
+            fill_color = min(int(i * gradient_step), 255)
+            y = int(start_gradient_y + i)
+            x = int(start_gradient_x + i)
+            offset = (request.border_width - i) * 2
+            center_draw.rectangle(((x, y), (x + offset, y + offset)), fill=fill_color)
+
+        y = int(start_gradient_y + gradient_width)
+        x = int(start_gradient_x + gradient_width)
+        offset = (request.border_width - gradient_width) * 2
+        center_draw.rectangle(((x, y), (x + offset, y + offset)), fill=255)
+        center_preprocessed_mask = preprocess_mask(center_mask).to(pipeline.device)
+
+    images = await do_diffusion(
+        request,
+        pipeline.image_to_image,
+        websocket,
+        return_images=True,
+        progress_multiplier=1 / 3,
+        progress_offset=2 / 3,
+        batched_params={'init_image': preprocessed_center_offset_images},
+        strength=request.strength,
+        mask=center_preprocessed_mask,
+    )
+
+    response = MakeTilableResponse(
+        images=[
+            ImageChops.offset(image, 0, -int(size[1] / 2)) for image in images
+        ],
+        mask=ImageChops.lighter(
+            ImageChops.offset(horizontal_mask, -int(size[0] / 2), 0),
+            ImageChops.offset(vertical_mask, 0, -int(size[1] / 2)),
+        )
+    )
+    await websocket.send_json(
+        {'status': WebSocketResponseStatus.FINISHED, 'result': json.loads(response.json())}
     )
 
 

@@ -170,7 +170,6 @@ async def do_gobig(
         shape = ((slice_width - i, slice_height - i), (i, i))
         fill = min(int(i * (255 / alpha_overlap)), 255)
         alpha_gradient.rectangle(shape, fill=fill)
-        i += 1
     # now composite the slices together
     finished_slices = []
     for better_slice, x, y in better_slices:
