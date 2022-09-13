@@ -1,3 +1,6 @@
+from fastapi import HTTPException, status
+
+
 class BaseWebSocketException(Exception):
     message = 'Unexpected exception, check server logs for details'
 
@@ -12,3 +15,11 @@ class BatchSizeIsTooLargeException(BaseWebSocketException):
 class AspectRatioTooWideException(BaseWebSocketException):
     message = 'Couldn\'t fit image with such aspect ratio into memory, ' \
               'try using another scaling mode'
+
+
+class CouldntFixFaceException(HTTPException):
+    def __init__(self):
+        super().__init__(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Couldn\'t fix faces. GFPGANer returned None'
+        )

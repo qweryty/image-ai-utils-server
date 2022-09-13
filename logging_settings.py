@@ -2,6 +2,7 @@ import logging.config
 import os.path
 
 from settings import settings
+from utils import resolve_path
 
 LOGGING = {
     'version': 1,
@@ -17,7 +18,7 @@ LOGGING = {
             'level': settings.FILE_LOG_LEVEL.upper(),
             'formatter': 'verbose',
             'class': 'logging.FileHandler',
-            'filename': os.path.abspath(os.path.join(os.path.dirname(__file__), 'messages.log'))
+            'filename': resolve_path('messages.log')
         },
         'blackhole': {'level': 'DEBUG', 'class': 'logging.NullHandler'},
     },

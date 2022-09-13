@@ -9,7 +9,7 @@ import torch
 from PIL import Image
 from diffusers import AutoencoderKL, DDIMScheduler, PNDMScheduler, \
     UNet2DConditionModel, LMSDiscreteScheduler, DiffusionPipeline
-from transformers import CLIPTextModel, CLIPTokenizer
+from transformers import CLIPTextModel, CLIPTokenizer, CLIPFeatureExtractor
 
 
 def preprocess(image: Image.Image) -> torch.FloatTensor:
@@ -47,6 +47,12 @@ def mask_overlay(
 
 
 class StableDiffusionUniversalPipeline(DiffusionPipeline):
+    vae: AutoencoderKL
+    text_encoder: CLIPTextModel
+    tokenizer: CLIPTokenizer
+    unet: UNet2DConditionModel
+    scheduler: Union[DDIMScheduler, PNDMScheduler]
+
     def __init__(
         self,
         vae: AutoencoderKL,
@@ -54,23 +60,52 @@ class StableDiffusionUniversalPipeline(DiffusionPipeline):
         tokenizer: CLIPTokenizer,
         unet: UNet2DConditionModel,
         scheduler: Union[DDIMScheduler, PNDMScheduler],
+        feature_extractor: CLIPFeatureExtractor,
     ):
         super().__init__()
-        scheduler = scheduler.set_format("pt")
+        scheduler = scheduler.set_format('pt')
         self.register_modules(
             vae=vae,
             text_encoder=text_encoder,
             tokenizer=tokenizer,
             unet=unet,
             scheduler=scheduler,
+            feature_extractor=feature_extractor,
         )
 
-    def _scale_and_encode(self, image: torch.FloatTensor):
-        latents = self.vae.encode(image).sample()
-        return 0.18215 * latents
+    def enable_attention_slicing(self, slice_size: Optional[Union[str, int]] = "auto"):
+        r"""
+        Enable sliced attention computation.
+
+        When this option is enabled, the attention module will split the input tensor in slices, to compute attention
+        in several steps. This is useful to save some memory in exchange for a small speed decrease.
+
+        Args:
+            slice_size (`str` or `int`, *optional*, defaults to `"auto"`):
+                When `"auto"`, halves the input to the attention heads, so attention will be computed in two steps. If
+                a number is provided, uses as many slices as `attention_head_dim // slice_size`. In this case,
+                `attention_head_dim` must be a multiple of `slice_size`.
+        """
+        if slice_size == "auto":
+            # half the attention head size is usually a good trade-off between
+            # speed and memory
+            slice_size = self.unet.config.attention_head_dim // 2
+        self.unet.set_attention_slice(slice_size)
+
+    def disable_attention_slicing(self):
+        r"""
+        Disable sliced attention computation. If `enable_attention_slicing` was previously invoked, this method will go
+        back to computing attention in one step.
+        """
+        # set slice_size = `None` to disable `attention slicing`
+        self.enable_attention_slicing(None)
+
+    def _scale_and_encode(self, image: torch.FloatTensor, generator: Optional[torch.Generator]):
+        latent_dist = self.vae.encode(image).latent_dist
+        return 0.18215 * latent_dist.sample(generator=generator)
 
     def _scale_and_decode(self, latents):
-        return self.vae.decode(1 / 0.18215 * latents)
+        return self.vae.decode(1 / 0.18215 * latents).sample
 
     async def text_to_image(
             self,
@@ -83,7 +118,7 @@ class StableDiffusionUniversalPipeline(DiffusionPipeline):
             generator: Optional[torch.Generator] = None,
             latents: Optional[torch.FloatTensor] = None,
             progress_callback: Optional[Callable[[int, int], Awaitable]] = None
-    ):
+    ) -> List[Image.Image]:
         if isinstance(prompt, str):
             batch_size = 1
         elif isinstance(prompt, list):
@@ -203,7 +238,7 @@ class StableDiffusionUniversalPipeline(DiffusionPipeline):
     async def image_to_image(
         self,
         prompt: Union[str, List[str]],
-        init_image: torch.FloatTensor,
+        init_image: Union[torch.FloatTensor, List[torch.FloatTensor]],
         mask: Optional[torch.FloatTensor] = None,
         alpha: Optional[torch.FloatTensor] = None,
         strength: float = 0.8,
@@ -212,7 +247,7 @@ class StableDiffusionUniversalPipeline(DiffusionPipeline):
         eta: Optional[float] = 0.0,
         generator: Optional[torch.Generator] = None,
         progress_callback: Optional[Callable[[int, int], Awaitable]] = None
-    ):
+    ) -> List[Image.Image]:
         if isinstance(prompt, str):
             batch_size = 1
         elif isinstance(prompt, list):
@@ -222,6 +257,12 @@ class StableDiffusionUniversalPipeline(DiffusionPipeline):
 
         if strength < 0 or strength > 1:
             raise ValueError(f'The value of strength should in [0.0, 1.0] but is {strength}')
+
+        if isinstance(init_image, list) and len(init_image) != batch_size:
+            raise ValueError(
+                f'Length of list of init images({len(init_image)}) '
+                f'should be equal to batch_size({batch_size})'
+            )
 
         # set timesteps
         accepts_offset = 'offset' in set(
@@ -236,18 +277,34 @@ class StableDiffusionUniversalPipeline(DiffusionPipeline):
         self.scheduler.set_timesteps(num_inference_steps, **extra_set_kwargs)
 
         # encode the init image into latents and scale the latents
-        init_latents = self._scale_and_encode(init_image)
-        if alpha is not None:
-            # Replacing transparent area with noise
-            init_latents = mask_overlay(
-                init_latents,
-                torch.randn(init_latents.shape, generator=generator, device=self.device),
-                alpha
-            )
-        init_latents_orig = init_latents
+        if isinstance(init_image, list):
+            init_latents = []
+            for image in init_image:
+                latents = self._scale_and_encode(image, generator)
+                if alpha is not None:
+                    # Replacing transparent area with noise
+                    latents = mask_overlay(
+                        latents,
+                        torch.randn(latents.shape, generator=generator, device=self.device),
+                        alpha
+                    )
+                init_latents.append(latents)
 
-        # prepare init_latents noise to latents
-        init_latents = torch.cat([init_latents] * batch_size)
+            init_latents = torch.cat(init_latents)
+        else:
+            init_latents = self._scale_and_encode(init_image, generator)
+            if alpha is not None:
+                # Replacing transparent area with noise
+                init_latents = mask_overlay(
+                    init_latents,
+                    torch.randn(init_latents.shape, generator=generator, device=self.device),
+                    alpha
+                )
+
+            # Expand init_latents for batch_size
+            init_latents = torch.cat([init_latents] * batch_size)
+
+        init_latents_orig = init_latents
 
         # get the original timestep using init_timestep
         init_timestep = int(num_inference_steps * strength) + offset
@@ -310,7 +367,7 @@ class StableDiffusionUniversalPipeline(DiffusionPipeline):
             # predict the noise residual
             noise_pred = self.unet(
                 latent_model_input, t, encoder_hidden_states=text_embeddings
-            )['sample']
+            ).sample
 
             # perform guidance
             if do_classifier_free_guidance:
@@ -322,7 +379,7 @@ class StableDiffusionUniversalPipeline(DiffusionPipeline):
             # compute the previous noisy sample x_t -> x_t-1
             latents = self.scheduler.step(
                 noise_pred, t, latents, **extra_step_kwargs
-            )['prev_sample']
+            ).prev_sample
 
             if mask is not None:
                 init_latents_proper = self.scheduler.add_noise(init_latents_orig, noise, t)

@@ -27,13 +27,10 @@ jobs:
           pyinstaller main.py --hidden-import colorlog --collect-all huggingface_hub --additional-hooks-dir pyinstaller_hooks
           copy .env.example dist\main\.env
           cd dist\main\
-          mkdir models
-          curl -L https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth -o models/realesr-general-x4v3.pth
-          curl -L https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-animevideov3.pth -o models/realesr-animevideov3.pth
-          curl -L https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth -o models/RealESRGAN_x4plus_anime_6B.pth
-          curl -L https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth -o models/RealESRGAN_x4plus.pth
+          
           mkdir basicsr\archs, basicsr\data, basicsr\losses, basicsr\models
           mkdir realesrgan\archs, realesrgan\data, realesrgan\losses, realesrgan\models
+          mkdir gfpgan\archs, gfpgan\data, gfpgan\losses, gfpgan\models
 
           & "C:/Program Files/7-Zip/7z.exe" a -r ..\image_ai_utils_windows.7z *
       - uses: actions/upload-artifact@v3

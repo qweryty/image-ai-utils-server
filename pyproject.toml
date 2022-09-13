@@ -1,12 +1,12 @@
 [tool.poetry]
 name = "image-ai-utils-server"
-version = "0.0.2"
+version = "0.0.3"
 description = ""
 authors = ["Sergey Morozov <sergey@morozov.top>"]
 
 [tool.poetry.dependencies]
 python = ">=3.9,<3.10" # 3.9 required for gfpgan which requires older version of numpy
-diffusers = "0.2.3"
+diffusers = "^0.3.0"
 transformers = "^4.21.1"
 scipy = "^1.9.0"
 fastapi = "^0.79.1"
@@ -21,6 +21,8 @@ numpy = "1.20.3"
 python-dotenv = "^0.20.0"
 colorlog = "^6.7.0"
 websockets = "^10.3"
+httpx = "^0.23.0"
+aiofiles = "^22.1.0"
 
 [tool.poetry.dev-dependencies]
 snakeviz = "^2.1.1"
