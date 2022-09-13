@@ -30,6 +30,7 @@ jobs:
           
           mkdir basicsr\archs, basicsr\data, basicsr\losses, basicsr\models
           mkdir realesrgan\archs, realesrgan\data, realesrgan\losses, realesrgan\models
+          mkdir gfpgan\archs, gfpgan\data, gfpgan\losses, gfpgan\models
 
           & "C:/Program Files/7-Zip/7z.exe" a -r ..\image_ai_utils_windows.7z *
       - uses: actions/upload-artifact@v3
