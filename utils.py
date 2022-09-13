@@ -47,9 +47,12 @@ def resolve_path(path: str) -> str:
 
 
 async def download_models(models: List[str]):
+    models_dir = resolve_path('models')
+    os.makedirs(models_dir, exist_ok=True)
+
     async def download(url: str, position: int):
         file_name = url.split('/')[-1]
-        file_path = os.path.join(resolve_path('models'), file_name)
+        file_path = os.path.join(models_dir, file_name)
         if os.path.exists(file_path):
             return
 

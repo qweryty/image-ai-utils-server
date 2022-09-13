@@ -133,6 +133,11 @@ async def do_diffusion(
                             await websocket.send_json(
                                 {'status': WebSocketResponseStatus.PROGRESS, 'progress': progress}
                             )
+                            # https://github.com/aaugustin/websockets/issues/867
+                            # Probably will be fixed if/when diffusers will implement asynchronous
+                            # pipeline
+                            # https://github.com/huggingface/diffusers/issues/374
+                            await asyncio.sleep(0)
 
                         new_images = (await diffusion_method(
                             prompt=prompts,
@@ -504,7 +509,7 @@ async def ping():
 
 
 async def setup():
-    await download_models(face_restoration.GFPGAN_URLS)
+    await download_models(face_restoration.GFPGAN_URLS + esrgan_upscaler.ESRGAN_URLS)
 
 
 if __name__ == '__main__':
