@@ -24,13 +24,15 @@ websockets = "^10.3"
 httpx = "^0.23.0"
 aiofiles = "^22.1.0"
 
-[tool.poetry.dev-dependencies]
-snakeviz = "^2.1.1"
-
 [[tool.poetry.source]]
 name = "torch"
 url = "https://download.pytorch.org/whl/cu116"
 secondary = true
+
+
+[tool.poetry.group.dev.dependencies]
+snakeviz = "^2.1.1"
+pyinstaller = "^5.4.1"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

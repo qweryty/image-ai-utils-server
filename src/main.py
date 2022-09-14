@@ -1,12 +1,10 @@
-from PIL import ImageChops, Image, ImageDraw
-
 from settings import settings  # noqa
 from logging_settings import LOGGING  # noqa
+
 import asyncio
 import functools
 from json import JSONDecodeError
 
-from consts import WebSocketResponseStatus, GFPGANModel
 from exceptions import BatchSizeIsTooLargeException, AspectRatioTooWideException, \
     BaseWebSocketException
 import face_restoration
@@ -21,6 +19,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Depends, WebSocket, status, WebSocketDisconnect
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from PIL import ImageChops, Image, ImageDraw
 from torch import autocast
 
 import esrgan_upscaler
@@ -30,6 +29,7 @@ from request_models import BaseImageGenerationRequest, ImageArrayResponse, Image
 from universal_pipeline import StableDiffusionUniversalPipeline, preprocess, preprocess_mask
 from utils import base64url_to_image, image_to_base64url, size_from_aspect_ratio, download_models
 
+print('Imported')
 logger = logging.getLogger(__name__)
 security = HTTPBasic()
 
@@ -88,6 +88,8 @@ try:
     if settings.USE_OPTIMIZED_MODE:
         pipeline.enable_attention_slicing()
 except Exception as e:
+    print('Caught exception')
+    print(e)
     logger.exception(e)
     raise e
 

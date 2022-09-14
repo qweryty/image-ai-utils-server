@@ -11,3 +11,7 @@ diffusers_cache
 main.spec
 messages.log
 gfpgan
+*.exe
+install/packages/top.morozov.image-ai-utils-server/data
+install/packages/top.morozov.image-ai-utils-server/meta/LICENSE.md
+scripts/qtif

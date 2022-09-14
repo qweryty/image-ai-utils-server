@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Package>
+    <DisplayName>Image AI Utils Server</DisplayName>
+    <Description>Image AI Utils Server</Description>
+    <Version>0.1.0</Version>
+    <ReleaseDate>2022-09-14</ReleaseDate>
+    <Licenses>
+        <License name="GNU GENERAL PUBLIC LICENSE" file="LICENSE.md" />
+    </Licenses>
+    <Essential>true</Essential>
+    <ForcedInstallation>true</ForcedInstallation>
+    <RequiresAdminRights>true</RequiresAdminRights>
+</Package>
