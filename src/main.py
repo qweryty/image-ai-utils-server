@@ -29,7 +29,6 @@ from request_models import BaseImageGenerationRequest, ImageArrayResponse, Image
 from universal_pipeline import StableDiffusionUniversalPipeline, preprocess, preprocess_mask
 from utils import base64url_to_image, image_to_base64url, size_from_aspect_ratio, download_models
 
-print('Imported')
 logger = logging.getLogger(__name__)
 security = HTTPBasic()
 
