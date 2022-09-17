@@ -22,6 +22,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from PIL import ImageChops, Image, ImageDraw
 from torch import autocast
 
+from consts import WebSocketResponseStatus, GFPGANModel
 import esrgan_upscaler
 from request_models import BaseImageGenerationRequest, ImageArrayResponse, ImageToImageRequest, \
     TextToImageRequest, GoBigRequest, ImageResponse, UpscaleRequest, InpaintingRequest, \

@@ -1,5 +1,4 @@
 import logging.config
-import os.path
 
 from settings import settings
 from utils import resolve_path

@@ -1,6 +1,3 @@
-import os.path
-from enum import Enum
-
 import numpy as np
 from PIL import Image
 from basicsr.archs.rrdbnet_arch import RRDBNet
