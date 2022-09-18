@@ -1296,7 +1296,7 @@ testing = ["func-timeout", "jaraco.itertools", "pytest (>=6)", "pytest-black (>=
 [metadata]
 lock-version = "1.1"
 python-versions = ">=3.9,<3.10" # 3.9 required for gfpgan which requires older version of numpy
-content-hash = "4c4ce905575f9308b2761d91ad9655035ba77110dd77957e1d08ec8853a33d2f"
+content-hash = "4ac93ed7ebeb85c5e006f11685ddc26d3446af159d49e50239017bafe8fdc058"
 
 [metadata.files]
 absl-py = [

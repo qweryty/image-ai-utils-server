@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/">
+        <file>validate_token.exe</file>
+    </qresource>
+</RCC>

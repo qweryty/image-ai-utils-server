@@ -77,21 +77,7 @@ def websocket_handler(path, app):
 app = FastAPI(dependencies=[Depends(authorize)])
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
-try:
-    pipeline = StableDiffusionUniversalPipeline.from_pretrained(
-        'CompVis/stable-diffusion-v1-4',
-        revision='fp16',
-        torch_dtype=torch.bfloat16,
-        use_auth_token=True,
-        cache_dir=settings.DIFFUSERS_CACHE_PATH,
-    ).to('cuda')
-    if settings.USE_OPTIMIZED_MODE:
-        pipeline.enable_attention_slicing()
-except Exception as e:
-    print('Caught exception')
-    print(e)
-    logger.exception(e)
-    raise e
+pipeline: Optional[StableDiffusionUniversalPipeline] = None
 
 
 async def do_diffusion(
@@ -415,10 +401,6 @@ async def make_tilable(websocket: WebSocket):
         strength=request.strength,
         alpha=preprocessed_alpha,
     )
-    '''horizontal_offset_result = [
-        Image.composite(image, horizontal_offset_image, horizontal_mask)
-        for image in horizontal_offset_result
-    ]'''
 
     # Vertical offset
     with autocast('cuda'):
@@ -512,6 +494,22 @@ async def ping():
 
 async def setup():
     await download_models(face_restoration.GFPGAN_URLS + esrgan_upscaler.ESRGAN_URLS)
+
+    global pipeline
+    try:
+        pipeline = StableDiffusionUniversalPipeline.from_pretrained(
+            'CompVis/stable-diffusion-v1-4',
+            revision='fp16',
+            torch_dtype=torch.bfloat16,
+            use_auth_token=True,
+            cache_dir=settings.DIFFUSERS_CACHE_PATH,
+        ).to('cuda')
+        if settings.USE_OPTIMIZED_MODE:
+            pipeline.enable_attention_slicing()
+    except Exception as e:
+        logger.error('Caught exception while initializing stable diffusion')
+        logger.exception(e)
+        raise e
 
 
 if __name__ == '__main__':

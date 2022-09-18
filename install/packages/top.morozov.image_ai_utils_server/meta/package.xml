@@ -2,12 +2,24 @@
 <Package>
     <DisplayName>Image AI Utils Server</DisplayName>
     <Description>Image AI Utils Server</Description>
+    <Name>top.morozov.image_ai_utils_server</Name>
     <Version>0.1.0</Version>
     <ReleaseDate>2022-09-14</ReleaseDate>
     <Licenses>
         <License name="GNU GENERAL PUBLIC LICENSE" file="LICENSE.md" />
     </Licenses>
+    <Script>install_script.js</Script>
+    <UserInterfaces>
+        <UserInterface>settings_widget.ui</UserInterface>
+    </UserInterfaces>
     <Essential>true</Essential>
     <ForcedInstallation>true</ForcedInstallation>
     <RequiresAdminRights>true</RequiresAdminRights>
+    <Operations>
+        <Operation name="Replace">
+            <Argument>@TargetDir@/.env</Argument>
+            <Argument>&lt;your-token&gt;</Argument>
+            <Argument>@HuggingFaceToken@</Argument>
+        </Operation>
+    </Operations>
 </Package>
