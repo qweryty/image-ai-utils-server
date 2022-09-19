@@ -40,3 +40,6 @@ class WebSocketResponseStatus(str, Enum):
 
 MIN_SEED = -0x8000_0000_0000_0000
 MAX_SEED = 0xffff_ffff_ffff_ffff
+
+STABLE_DIFFUSION_MODEL_NAME = 'CompVis/stable-diffusion-v1-4'
+STABLE_DIFFUSION_REVISION = 'fp16'

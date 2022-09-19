@@ -1,3 +1,4 @@
+from download_models import download
 from settings import settings  # noqa
 from logging_settings import LOGGING  # noqa
 
@@ -22,13 +23,14 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from PIL import ImageChops, Image, ImageDraw
 from torch import autocast
 
-from consts import WebSocketResponseStatus, GFPGANModel
+from consts import WebSocketResponseStatus, GFPGANModel, STABLE_DIFFUSION_MODEL_NAME, \
+    STABLE_DIFFUSION_REVISION
 import esrgan_upscaler
 from request_models import BaseImageGenerationRequest, ImageArrayResponse, ImageToImageRequest, \
     TextToImageRequest, GoBigRequest, ImageResponse, UpscaleRequest, InpaintingRequest, \
     FaceRestorationRequest, MakeTilableRequest, MakeTilableResponse
 from universal_pipeline import StableDiffusionUniversalPipeline, preprocess, preprocess_mask
-from utils import base64url_to_image, image_to_base64url, size_from_aspect_ratio, download_models
+from utils import base64url_to_image, image_to_base64url, size_from_aspect_ratio
 
 logger = logging.getLogger(__name__)
 security = HTTPBasic()
@@ -493,13 +495,13 @@ async def ping():
 
 
 async def setup():
-    await download_models(face_restoration.GFPGAN_URLS + esrgan_upscaler.ESRGAN_URLS)
+    await download()
 
     global pipeline
     try:
         pipeline = StableDiffusionUniversalPipeline.from_pretrained(
-            'CompVis/stable-diffusion-v1-4',
-            revision='fp16',
+            STABLE_DIFFUSION_MODEL_NAME,
+            revision=STABLE_DIFFUSION_REVISION,
             torch_dtype=torch.bfloat16,
             use_auth_token=True,
             cache_dir=settings.DIFFUSERS_CACHE_PATH,

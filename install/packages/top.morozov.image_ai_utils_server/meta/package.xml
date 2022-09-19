@@ -21,5 +21,16 @@
             <Argument>&lt;your-token&gt;</Argument>
             <Argument>@HuggingFaceToken@</Argument>
         </Operation>
+        <Operation name="Execute">
+            <Argument>@TargetDir@/download_models.exe</Argument>
+        </Operation>
+        <Operation name="CreateShortcut">
+            <Argument>@TargetDir@/main.exe</Argument>
+            <Argument>@DesktopDir@/Image AI Utils Server.lnk</Argument>
+        </Operation>
+        <Operation name="CreateShortcut">
+            <Argument>@TargetDir@/main.exe</Argument>
+            <Argument>@StartMenuDir@/Image AI Utils Server.lnk</Argument>
+        </Operation>
     </Operations>
 </Package>

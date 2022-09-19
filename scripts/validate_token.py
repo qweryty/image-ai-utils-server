@@ -11,7 +11,7 @@ if __name__ == '__main__':
 
     token = sys.argv[1]
     try:
-        model_info('CompVis/stable-diffusion-v1-4', revision='fp16', token=token)
+        info = model_info('CompVis/stable-diffusion-v1-4', revision='fp16', token=token)
     except HTTPError as e:
         status_code = e.response.status_code
         if status_code == 401:

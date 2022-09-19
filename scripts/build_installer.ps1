@@ -1,7 +1,7 @@
 pyinstaller main.spec
 pyinstaller validate_token.spec
 
-Move-Item -Path dist\main -Destination install\packages\top.morozov.image_ai_utils_server\data
+Move-Item -Path dist\image_ai_utils_server -Destination install\packages\top.morozov.image_ai_utils_server\data
 Move-Item dist\validate_token.exe -Destination install\resources
 
 copy .env.example install\packages\top.morozov.image_ai_utils_server\data\.env
@@ -14,4 +14,4 @@ mkdir gfpgan\archs, gfpgan\data, gfpgan\losses, gfpgan\models
 
 cd ..\..\..\..
 
-.\scripts\qtif\bin\binarycreator.exe -c .\install\config\config.xml -p .\install\packages\ -r .\install\resources\resources.qrc -f .\build\installer.exe
+.\scripts\qtif\bin\binarycreator.exe -c .\install\config\config.xml -p .\install\packages\ -r .\install\resources\resources.qrc -f -v .\build\installer.exe
