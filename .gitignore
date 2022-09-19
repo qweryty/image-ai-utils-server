@@ -8,7 +8,7 @@ models
 build
 dist
 diffusers_cache
-messages.log
+*.log
 gfpgan
 *.exe
 install/packages/top.morozov.image_ai_utils_server/data

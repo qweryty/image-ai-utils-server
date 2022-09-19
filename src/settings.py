@@ -17,11 +17,12 @@ class Settings(BaseSettings):
     PORT: int = Field(7331, env='PORT')
     LOG_LEVEL: str = Field('DEBUG', env='LOG_LEVEL')
     FILE_LOG_LEVEL: str = Field('ERROR', env='FILE_LOG_LEVEL')
+    LOG_FILE_PATH = Field('./log/server.log', env='LOG_FILE_PATH')
     DIFFUSERS_CACHE_PATH: str = Field(DIFFUSERS_CACHE, env='DIFFUSERS_CACHE_PATH')
     USE_OPTIMIZED_MODE: bool = Field(True, env='USE_OPTIMIZED_MODE')
 
     # TODO make abspath from current file
-    @validator('DIFFUSERS_CACHE_PATH')
+    @validator('DIFFUSERS_CACHE_PATH', 'LOG_FILE_PATH', always=True)
     def make_abspath(cls, path: Optional[str]) -> Optional[str]:
         if path is None or os.path.isabs(path):
             return path

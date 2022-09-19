@@ -21,6 +21,10 @@
             <Argument>&lt;your-token&gt;</Argument>
             <Argument>@HuggingFaceToken@</Argument>
         </Operation>
+        <Operation name="AppendFile">
+            <Argument>@TargetDir@/.env</Argument>
+            <Argument>LOG_FILE_PATH=@HomeDir@/AppData/LocalLow/ImageAIUtils/server.log</Argument>
+        </Operation>
         <Operation name="Execute">
             <Argument>@TargetDir@/download_models.exe</Argument>
         </Operation>

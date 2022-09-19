@@ -495,8 +495,6 @@ async def ping():
 
 
 async def setup():
-    await download()
-
     global pipeline
     try:
         pipeline = StableDiffusionUniversalPipeline.from_pretrained(
@@ -505,6 +503,7 @@ async def setup():
             torch_dtype=torch.bfloat16,
             use_auth_token=True,
             cache_dir=settings.DIFFUSERS_CACHE_PATH,
+            local_files_only=True
         ).to('cuda')
         if settings.USE_OPTIMIZED_MODE:
             pipeline.enable_attention_slicing()

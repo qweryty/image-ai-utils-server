@@ -57,6 +57,7 @@ async def download_stable_diffusion(model_name: str, revision: str):
 
 
 async def download():
+    # TODO check if model exists and hash
     await asyncio.gather(
         download_models(GFPGAN_URLS + ESRGAN_URLS),
         download_stable_diffusion(STABLE_DIFFUSION_MODEL_NAME, STABLE_DIFFUSION_REVISION)

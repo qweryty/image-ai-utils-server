@@ -1,4 +1,5 @@
 import logging.config
+import os.path
 
 from settings import settings
 from utils import resolve_path
@@ -17,7 +18,7 @@ LOGGING = {
             'level': settings.FILE_LOG_LEVEL.upper(),
             'formatter': 'verbose',
             'class': 'logging.FileHandler',
-            'filename': resolve_path('messages.log')
+            'filename': settings.LOG_FILE_PATH
         },
         'blackhole': {'level': 'DEBUG', 'class': 'logging.NullHandler'},
     },
@@ -53,5 +54,7 @@ LOGGING = {
 
     }
 }
+
+os.makedirs(os.path.dirname(settings.LOG_FILE_PATH), exist_ok=True)
 
 logging.config.dictConfig(LOGGING)
