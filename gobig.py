@@ -8,7 +8,7 @@ from torch import autocast
 
 from esrgan_upscaler import upscale
 from request_models import ESRGANModel
-from universal_pipeline import StableDiffusionUniversalPipeline, preprocess
+from pipeline import StablePipe
 
 
 # Alternative method composites a grid of images at the positions provided
@@ -124,7 +124,7 @@ async def do_gobig(
     overlap: int,
     use_real_esrgan: bool,
     esrgan_model: ESRGANModel,
-    pipeline: StableDiffusionUniversalPipeline,
+    pipeline: StablePipe,
     resampling_mode: Resampling = Resampling.LANCZOS,
     strength: float = 0.8,
     num_inference_steps: Optional[int] = 50,
@@ -173,7 +173,7 @@ async def do_gobig(
                 result_slice = (
                     await pipeline.image_to_image(
                         prompt=prompt,
-                        init_image=preprocess(chunk).to(pipeline.device),
+                        init_image=chunk,
                         strength=strength,
                         num_inference_steps=num_inference_steps,
                         guidance_scale=guidance_scale,
