@@ -3,7 +3,14 @@ from typing import Optional, List
 from PIL import Image
 from pydantic import BaseModel, Field, validator
 
-from consts import ImageFormat, MIN_SEED, MAX_SEED, ScalingMode, ESRGANModel, GFPGANModel
+from consts import (
+    ImageFormat,
+    MIN_SEED,
+    MAX_SEED,
+    ScalingMode,
+    ESRGANModel,
+    GFPGANModel,
+)
 from utils import image_to_base64url
 
 
@@ -23,7 +30,7 @@ class BaseImageGenerationRequest(BaseDiffusionRequest):
 
 
 class TextToImageRequest(BaseImageGenerationRequest):
-    aspect_ratio: float = Field(1., gt=0)  # width/height
+    aspect_ratio: float = Field(1.0, gt=0)  # width/height
 
 
 class ImageToImageRequest(BaseImageGenerationRequest):
@@ -40,7 +47,7 @@ class GoBigRequest(BaseDiffusionRequest):
     use_real_esrgan: bool = True
     esrgan_model: ESRGANModel = ESRGANModel.GENERAL_X4_V3
     maximize: bool = True
-    strength: float = Field(.5, ge=0, le=1)
+    strength: float = Field(0.5, ge=0, le=1)
     target_width: int = Field(..., gt=0)
     target_height: int = Field(..., gt=0)
     overlap: int = Field(64, gt=0, lt=512)
@@ -49,7 +56,7 @@ class GoBigRequest(BaseDiffusionRequest):
 class MakeTilableRequest(BaseImageGenerationRequest):
     source_image: bytes
     border_width: int = Field(50, gt=0, lt=256)
-    border_softness: float = Field(.5, ge=0, le=1)
+    border_softness: float = Field(0.5, ge=0, le=1)
     strength: float = Field(0.8, ge=0, le=1)
 
 
@@ -64,17 +71,20 @@ class UpscaleRequest(BaseModel):
 class ImageArrayResponse(BaseModel):
     images: List[bytes]
 
-    @validator('images', pre=True)
+    @validator("images", pre=True)
     def images_to_bytes(cls, v: List):
         return [
-            image_to_base64url(image) if isinstance(image, Image.Image) else image for image in v
+            image_to_base64url(image)
+            if isinstance(image, Image.Image)
+            else image
+            for image in v
         ]
 
 
 class MakeTilableResponse(ImageArrayResponse):
     mask: bytes
 
-    @validator('mask', pre=True)
+    @validator("mask", pre=True)
     def mask_to_bytes(cls, v):
         if isinstance(v, Image.Image):
             v = image_to_base64url(v)
@@ -84,7 +94,7 @@ class MakeTilableResponse(ImageArrayResponse):
 class ImageResponse(BaseModel):
     image: bytes
 
-    @validator('image', pre=True)
+    @validator("image", pre=True)
     def image_to_bytes(cls, v):
         if isinstance(v, Image.Image):
             v = image_to_base64url(v)

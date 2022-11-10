@@ -12,14 +12,22 @@ from universal_pipeline import StableDiffusionUniversalPipeline, preprocess
 
 
 # Alternative method composites a grid of images at the positions provided
-def grid_merge(source: Image.Image, slices: List[Tuple[Image.Image, int, int]]):
-    source = source.convert('RGBA')
-    for image_slice, posx, posy in slices:  # go in reverse to get proper stacking
+def grid_merge(
+    source: Image.Image, slices: List[Tuple[Image.Image, int, int]]
+):
+    source = source.convert("RGBA")
+    for (
+        image_slice,
+        posx,
+        posy,
+    ) in slices:  # go in reverse to get proper stacking
         source.alpha_composite(image_slice, (posx, posy))
     return source
 
 
-def grid_coords(target: Tuple[int, int], slice_size: Tuple[int, int], overlap: int):
+def grid_coords(
+    target: Tuple[int, int], slice_size: Tuple[int, int], overlap: int
+):
     # generate a list of coordinate tuples for our sections, in order of how they'll be rendered
     # target should be the size for the gobig result, original is the size of each chunk being
     # rendered
@@ -69,8 +77,12 @@ def grid_coords(target: Tuple[int, int], slice_size: Tuple[int, int], overlap: i
             dy_list.append((rx, dy))
     # calculate a new size that will fill the canvas, which will be optionally used in grid_slice and go_big
     last_coordx, last_coordy = dy_list[-1:][0]
-    render_edgey = last_coordy + slice_y  # outer bottom edge of the render canvas
-    render_edgex = last_coordx + slice_x  # outer side edge of the render canvas
+    render_edgey = (
+        last_coordy + slice_y
+    )  # outer bottom edge of the render canvas
+    render_edgex = (
+        last_coordx + slice_x
+    )  # outer side edge of the render canvas
     scalarx = render_edgex / target_x
     scalary = render_edgey / target_y
     if scalarx <= scalary:
@@ -104,64 +116,76 @@ def grid_slice(source: Image.Image, overlap: int, slice_size: Tuple[int, int]):
 
 
 async def do_gobig(
-        input_image: Image.Image,
-        prompt: str,
-        maximize: bool,
-        target_width: int,
-        target_height: int,
-        overlap: int,
-        use_real_esrgan: bool,
-        esrgan_model: ESRGANModel,
-        pipeline: StableDiffusionUniversalPipeline,
-        resampling_mode: Resampling = Resampling.LANCZOS,
-        strength: float = 0.8,
-        num_inference_steps: Optional[int] = 50,
-        guidance_scale: Optional[float] = 7.5,
-        generator: Optional[torch.Generator] = None,
-        progress_callback: Optional[Callable[[float], Awaitable]] = None
+    input_image: Image.Image,
+    prompt: str,
+    maximize: bool,
+    target_width: int,
+    target_height: int,
+    overlap: int,
+    use_real_esrgan: bool,
+    esrgan_model: ESRGANModel,
+    pipeline: StableDiffusionUniversalPipeline,
+    resampling_mode: Resampling = Resampling.LANCZOS,
+    strength: float = 0.8,
+    num_inference_steps: Optional[int] = 50,
+    guidance_scale: Optional[float] = 7.5,
+    generator: Optional[torch.Generator] = None,
+    progress_callback: Optional[Callable[[float], Awaitable]] = None,
 ) -> Image.Image:
     # get our render size for each slice, and our target size
     slice_width = slice_height = 512
     if use_real_esrgan:
         input_image = upscale(input_image, esrgan_model)
-    target_image = input_image.resize((target_width, target_height), resampling_mode)
-    slices, new_canvas_size = grid_slice(target_image, overlap, (slice_width, slice_height))
+    target_image = input_image.resize(
+        (target_width, target_height), resampling_mode
+    )
+    slices, new_canvas_size = grid_slice(
+        target_image, overlap, (slice_width, slice_height)
+    )
     if maximize:
         # increase our final image size to use up blank space
         target_image = input_image.resize(new_canvas_size, resampling_mode)
-        slices, new_canvas_size = grid_slice(target_image, overlap, (slice_width, slice_height))
+        slices, new_canvas_size = grid_slice(
+            target_image, overlap, (slice_width, slice_height)
+        )
     input_image.close()
     # now we trigger a do_run for each slice
     better_slices = []
 
     count = 0
     if progress_callback is not None:
-        async def chunk_progress_callback(batch_step: int, total_batch_steps: int):
+
+        async def chunk_progress_callback(
+            batch_step: int, total_batch_steps: int
+        ):
             current_step = count * total_batch_steps + batch_step
             total_steps = len(slices) * total_batch_steps
             progress = current_step / total_steps
             await progress_callback(progress)
+
     else:
         chunk_progress_callback = None
 
-    with autocast('cuda'):
+    with autocast("cuda"):
         with torch.inference_mode():
             # TODO run in batches
             for count, (chunk, coord_x, coord_y) in enumerate(slices):
-                result_slice = (await pipeline.image_to_image(
-                    prompt=prompt,
-                    init_image=preprocess(chunk).to(pipeline.device),
-                    strength=strength,
-                    num_inference_steps=num_inference_steps,
-                    guidance_scale=guidance_scale,
-                    generator=generator,
-                    progress_callback=chunk_progress_callback
-                ))[0]
+                result_slice = (
+                    await pipeline.image_to_image(
+                        prompt=prompt,
+                        init_image=preprocess(chunk).to(pipeline.device),
+                        strength=strength,
+                        num_inference_steps=num_inference_steps,
+                        guidance_scale=guidance_scale,
+                        generator=generator,
+                        progress_callback=chunk_progress_callback,
+                    )
+                )[0]
                 # result_slice.copy?
                 better_slices.append((result_slice, coord_x, coord_y))
 
     # create an alpha channel for compositing the slices
-    alpha = Image.new('L', (slice_width, slice_height), color=0xFF)
+    alpha = Image.new("L", (slice_width, slice_height), color=0xFF)
     alpha_gradient = ImageDraw.Draw(alpha)
     # we want the alpha gradient to be half the size of the overlap,
     # otherwise we always see some of the original background underneath
