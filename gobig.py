@@ -1,3 +1,5 @@
+# pylint: disable=invalid-name
+
 # https://github.com/lowfuel/progrock-stable
 from typing import Tuple, Optional, List, Callable, Awaitable
 
@@ -28,9 +30,9 @@ def grid_merge(
 def grid_coords(
     target: Tuple[int, int], slice_size: Tuple[int, int], overlap: int
 ):
-    # generate a list of coordinate tuples for our sections, in order of how they'll be rendered
-    # target should be the size for the gobig result, original is the size of each chunk being
-    # rendered
+    # Generate a list of coordinate tuples for our sections, in order of how
+    # they'll be rendered; target should be the size for the gobig result,
+    # original is the size of each chunk being rendered.
     center = []
     target_x, target_y = target
     center_x = int(target_x / 2)
@@ -75,7 +77,8 @@ def grid_coords(
         while (dy + slice_y) <= target_y:
             dy = dy + slice_y - overlap
             dy_list.append((rx, dy))
-    # calculate a new size that will fill the canvas, which will be optionally used in grid_slice and go_big
+    # Calculate a new size that will fill the canvas, which will be optionally
+    # used in grid_slice and go_big.
     last_coordx, last_coordy = dy_list[-1:][0]
     render_edgey = (
         last_coordy + slice_y
@@ -91,7 +94,9 @@ def grid_coords(
     else:
         new_edgex = int(target_x * scalary)
         new_edgey = int(target_y * scalary)
-    # now put all the chunks into one master list of coordinates (essentially reverse of how we calculated them so that the central slices will be on top)
+    # Now put all the chunks into one master list of coordinates (essentially
+    # reverse of how we calculated them so that the central slices will be on
+    # top).
     result = []
     for coords in dy_list[::-1]:
         result.append(coords)

@@ -61,7 +61,7 @@ async def download_models(models: List[str]):
             return
 
         logger.info(f"Downloading {file_path} {position}")
-        async with aiofiles.open(file_path, mode="wb") as f:
+        async with aiofiles.open(file_path, mode="wb") as outfile:
             async with httpx.AsyncClient() as client:
                 async with client.stream(
                     "GET", url, follow_redirects=True
@@ -78,7 +78,7 @@ async def download_models(models: List[str]):
                     ) as progress:
                         num_bytes_downloaded = response.num_bytes_downloaded
                         async for chunk in response.aiter_bytes():
-                            await f.write(chunk)
+                            await outfile.write(chunk)
                             progress.update(
                                 response.num_bytes_downloaded
                                 - num_bytes_downloaded

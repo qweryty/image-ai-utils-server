@@ -13,10 +13,11 @@ from utils import resolve_path
 logger = logging.getLogger(__name__)
 
 
+GFPGAN_BASE = "https://github.com/TencentARC/GFPGAN/releases/download/"
 GFPGAN_URLS = [
-    "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.3.pth",
-    "https://github.com/TencentARC/GFPGAN/releases/download/v0.2.0/GFPGANCleanv1-NoCE-C2.pth",
-    "https://github.com/TencentARC/GFPGAN/releases/download/v0.1.0/GFPGANv1.pth",
+    f"{GFPGAN_BASE}v1.3.0/GFPGANv1.3.pth",
+    f"{GFPGAN_BASE}v0.2.0/GFPGANCleanv1-NoCE-C2.pth",
+    f"{GFPGAN_BASE}v0.1.0/GFPGANv1.pth",
 ]
 
 MODEL_PATHS = {
@@ -27,7 +28,7 @@ MODEL_PATHS = {
 }
 
 for key, value in MODEL_PATHS.items():
-    MODEL_PATHS[key][0] = resolve_path(value[0])
+    value[0] = resolve_path(value[0])
 
 
 def restore_face(
@@ -39,7 +40,7 @@ def restore_face(
     aligned: bool = False,
     only_center_face: bool = False,
 ):
-    # ------------------------ set up background upsampler ------------------------
+    # ---------------------- set up background upsampler ----------------------
     if use_real_esrgan:
         bg_upsampler = get_upsampler(
             model_type=ESRGANModel.X2_PLUS, tile=bg_tile
@@ -63,7 +64,7 @@ def restore_face(
     input_img = np.asarray(image.convert("RGB"))
 
     # restore faces and background if necessary
-    cropped_faces, restored_faces, restored_img = restorer.enhance(
+    _cropped_faces, _restored_faces, restored_img = restorer.enhance(
         input_img,
         has_aligned=aligned,
         only_center_face=only_center_face,

@@ -1,6 +1,3 @@
-import os.path
-from enum import Enum
-
 import numpy as np
 from PIL import Image
 from basicsr.archs.rrdbnet_arch import RRDBNet
@@ -10,14 +7,15 @@ from realesrgan.archs.srvgg_arch import SRVGGNetCompact
 from request_models import ESRGANModel
 from utils import resolve_path
 
+ESRGAN_BASE = "https://github.com/xinntao/Real-ESRGAN/releases/download/"
 ESRGAN_URLS = [
-    "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth",
-    "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
-    "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth",
-    "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.1/RealESRNet_x4plus.pth",
-    "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.1/ESRGAN_SRx4_DF2KOST_official-ff704c30.pth",
-    "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth",
-    "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-animevideov3.pth",
+    f"{ESRGAN_BASE}v0.2.5.0/realesr-general-x4v3.pth",
+    f"{ESRGAN_BASE}v0.1.0/RealESRGAN_x4plus.pth",
+    f"{ESRGAN_BASE}v0.2.1/RealESRGAN_x2plus.pth",
+    f"{ESRGAN_BASE}v0.1.1/RealESRNet_x4plus.pth",
+    f"{ESRGAN_BASE}v0.1.1/ESRGAN_SRx4_DF2KOST_official-ff704c30.pth",
+    f"{ESRGAN_BASE}v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth",
+    f"{ESRGAN_BASE}v0.2.5.0/realesr-animevideov3.pth",
 ]
 
 MODEL_PATHS = {
@@ -25,7 +23,8 @@ MODEL_PATHS = {
     ESRGANModel.X4_PLUS: "models/RealESRGAN_x4plus.pth",
     ESRGANModel.X2_PLUS: "models/RealESRGAN_x2plus.pth",
     ESRGANModel.ESRNET_X4_PLUS: "models/RealESRNet_x4plus.pth",
-    ESRGANModel.OFFICIAL_X4: "models/ESRGAN_SRx4_DF2KOST_official-ff704c30.pth",
+    ESRGANModel.OFFICIAL_X4: "models/"
+    "ESRGAN_SRx4_DF2KOST_official-ff704c30.pth",
     ESRGANModel.ANIME_VIDEO_V3: "models/realesr-animevideov3.pth",
     ESRGANModel.X4_PLUS_ANIME_6B: "models/RealESRGAN_x4plus_anime_6B.pth",
 }

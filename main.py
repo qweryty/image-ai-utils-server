@@ -1,26 +1,10 @@
-from PIL import ImageChops, Image, ImageDraw
-
-from settings import settings  # noqa
-from logging_settings import LOGGING  # noqa
 import asyncio
 import functools
 from json import JSONDecodeError
-
-from consts import WebSocketResponseStatus, GFPGANModel
-from exceptions import (
-    BatchSizeIsTooLargeException,
-    AspectRatioTooWideException,
-    BaseWebSocketException,
-)
-import face_restoration
-from gobig import do_gobig
-
 import json
 import logging
 from typing import Callable, List, Dict, Any, Optional, Union
 
-import torch
-import uvicorn
 from fastapi import (
     FastAPI,
     HTTPException,
@@ -31,9 +15,22 @@ from fastapi import (
 )
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from PIL import Image  # , ImageChops, ImageDraw
+import torch
 from torch import autocast
+import uvicorn
 
+from consts import WebSocketResponseStatus, GFPGANModel
 import esrgan_upscaler
+from exceptions import (
+    BatchSizeIsTooLargeException,
+    AspectRatioTooWideException,
+    BaseWebSocketException,
+)
+import face_restoration
+from gobig import do_gobig
+from logging_settings import LOGGING
+from pipeline import StablePipe
 from request_models import (
     BaseImageGenerationRequest,
     ImageArrayResponse,
@@ -44,10 +41,10 @@ from request_models import (
     UpscaleRequest,
     InpaintingRequest,
     FaceRestorationRequest,
-    MakeTilableRequest,
-    MakeTilableResponse,
+    #  MakeTilableRequest,
+    #  MakeTilableResponse,
 )
-from pipeline import StablePipe
+from settings import settings
 from utils import (
     base64url_to_image,
     image_to_base64url,
@@ -91,9 +88,9 @@ def websocket_handler(path, app):
                     return
 
                 await handler(websocket)
-            except BaseWebSocketException as e:
+            except BaseWebSocketException as exc:
                 await websocket.close(
-                    status.WS_1008_POLICY_VIOLATION, e.message
+                    status.WS_1008_POLICY_VIOLATION, exc.message
                 )
             except JSONDecodeError:
                 await websocket.close(
@@ -108,16 +105,16 @@ def websocket_handler(path, app):
     return decorator
 
 
-app = FastAPI(dependencies=[Depends(authorize)])
-app.add_middleware(GZipMiddleware, minimum_size=1000)
+APP = FastAPI(dependencies=[Depends(authorize)])
+APP.add_middleware(GZipMiddleware, minimum_size=1000)
 
 try:
-    pipeline = StablePipe(cache_dir=settings.DIFFUSERS_CACHE_PATH)
+    PIPELINE = StablePipe(cache_dir=settings.DIFFUSERS_CACHE_PATH)
     if settings.USE_OPTIMIZED_MODE:
-        pipeline.enable_attention_slicing()
-except Exception as e:
-    logger.exception(e)
-    raise e
+        PIPELINE.enable_attention_slicing()
+except Exception as exception:
+    logger.exception(exception)
+    raise exception
 
 
 async def do_diffusion(
@@ -177,8 +174,8 @@ async def do_diffusion(
                                 }
                             )
                             # https://github.com/aaugustin/websockets/issues/867
-                            # Probably will be fixed if/when diffusers will implement asynchronous
-                            # pipeline
+                            # Probably will be fixed if/when diffusers will
+                            # implement asynchronous pipeline.
                             # https://github.com/huggingface/diffusers/issues/374
                             await asyncio.sleep(0)
 
@@ -229,32 +226,32 @@ async def do_diffusion(
                         )
                         images.extend(new_images)
                     break
-                except RuntimeError as e:
+                except RuntimeError as exc:
                     if request.try_smaller_batch_on_fail:
                         logger.warning(
-                            f"Batch size {batch_size} was too large, trying smaller"
+                            f"Batch size {batch_size} was too large, "
+                            "trying smaller"
                         )
                     else:
-                        raise BatchSizeIsTooLargeException(batch_size)
+                        raise BatchSizeIsTooLargeException(batch_size) from exc
             else:
                 raise AspectRatioTooWideException
 
     if return_images:
         return images
-    else:
-        return ImageArrayResponse(images=images)
+    return ImageArrayResponse(images=images)
 
 
 # TODO task queue?
 #  (or can set up an external scheduler and use this as internal endpoint)
-@websocket_handler("/text_to_image", app)
+@websocket_handler("/text_to_image", APP)
 async def text_to_image(websocket: WebSocket):
     request = TextToImageRequest(**(await websocket.receive_json()))
     width, height = size_from_aspect_ratio(
         request.aspect_ratio, request.scaling_mode
     )
     response = await do_diffusion(
-        request, pipeline.text_to_image, websocket, height=height, width=width
+        request, PIPELINE.text_to_image, websocket, height=height, width=width
     )
     await websocket.send_json(
         {
@@ -264,7 +261,7 @@ async def text_to_image(websocket: WebSocket):
     )
 
 
-@websocket_handler("/image_to_image", app)
+@websocket_handler("/image_to_image", APP)
 async def image_to_image(websocket: WebSocket):
     request = ImageToImageRequest(**(await websocket.receive_json()))
     source_image = base64url_to_image(request.source_image)
@@ -275,20 +272,20 @@ async def image_to_image(websocket: WebSocket):
 
     #  with autocast("cuda"):
     #      preprocessed_source_image = preprocess(source_image).to(
-    #          pipeline.device
+    #          PIPELINE.device
     #      )
     #      preprocessed_alpha = None
     #      if source_image.mode == "RGBA":
     #          preprocessed_alpha = 1 - preprocess_mask(
     #              source_image.getchannel("A")
-    #          ).to(pipeline.device)
+    #          ).to(PIPELINE.device)
     #
     #      if preprocessed_alpha is not None and not preprocessed_alpha.any():
     #          preprocessed_alpha = None
 
     response = await do_diffusion(
         request,
-        pipeline.image_to_image,
+        PIPELINE.image_to_image,
         websocket,
         init_image=source_image,
         strength=request.strength,
@@ -302,7 +299,7 @@ async def image_to_image(websocket: WebSocket):
     )
 
 
-@websocket_handler("/inpainting", app)
+@websocket_handler("/inpainting", APP)
 async def inpainting(websocket: WebSocket):
     request = InpaintingRequest(**(await websocket.receive_json()))
     source_image = base64url_to_image(request.source_image)
@@ -316,11 +313,11 @@ async def inpainting(websocket: WebSocket):
 
     #  with autocast("cuda"):
     #      preprocessed_source_image = preprocess(source_image).to(
-    #          pipeline.device
+    #          PIPELINE.device
     #      )
     #      preprocessed_mask = None
     #      if mask is not None:
-    #          preprocessed_mask = preprocess_mask(mask).to(pipeline.device)
+    #          preprocessed_mask = preprocess_mask(mask).to(PIPELINE.device)
     #
     #      if preprocessed_mask is not None and not preprocessed_mask.any():
     #          preprocessed_mask = None
@@ -329,7 +326,7 @@ async def inpainting(websocket: WebSocket):
     #      if source_image.mode == "RGBA":
     #          preprocessed_alpha = 1 - preprocess_mask(
     #              source_image.getchannel("A")
-    #          ).to(pipeline.device)
+    #          ).to(PIPELINE.device)
     #
     #      if preprocessed_alpha is not None and not preprocessed_alpha.any():
     #          preprocessed_alpha = None
@@ -345,7 +342,7 @@ async def inpainting(websocket: WebSocket):
     # TODO return error if mask empty
     response = await do_diffusion(
         request,
-        pipeline.image_to_image,
+        PIPELINE.image_to_image,
         websocket,
         init_image=source_image,
         strength=request.strength,
@@ -360,7 +357,7 @@ async def inpainting(websocket: WebSocket):
     )
 
 
-@websocket_handler("/gobig", app)
+@websocket_handler("/gobig", APP)
 async def gobig(websocket: WebSocket):
     request = GoBigRequest(**(await websocket.receive_json()))
 
@@ -383,7 +380,7 @@ async def gobig(websocket: WebSocket):
         overlap=request.overlap,
         use_real_esrgan=request.use_real_esrgan,
         esrgan_model=request.esrgan_model,
-        pipeline=pipeline,
+        pipeline=PIPELINE,
         strength=request.strength,
         num_inference_steps=request.num_inference_steps,
         guidance_scale=request.guidance_scale,
@@ -399,7 +396,7 @@ async def gobig(websocket: WebSocket):
     )
 
 
-@app.post("/upscale")
+@APP.post("/upscale")
 async def upscale(request: UpscaleRequest) -> ImageResponse:
     try:
         source_image = base64url_to_image(request.image)
@@ -417,14 +414,14 @@ async def upscale(request: UpscaleRequest) -> ImageResponse:
             )
 
         return ImageResponse(image=image_to_base64url(source_image))
-    except RuntimeError:
+    except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Scaling factor or image is too large",
-        )
+        ) from exc
 
 
-@app.post("/restore_face")
+@APP.post("/restore_face")
 async def restore_face(request: FaceRestorationRequest) -> ImageResponse:
     if request.model_type == GFPGANModel.V1:
         raise HTTPException(
@@ -444,7 +441,7 @@ async def restore_face(request: FaceRestorationRequest) -> ImageResponse:
     )
 
 
-@websocket_handler("/make_tilable", app)
+@websocket_handler("/make_tilable", APP)
 async def make_tilable(websocket: WebSocket):
     raise NotImplementedError
     #  request = MakeTilableRequest(**(await websocket.receive_json()))
@@ -459,12 +456,12 @@ async def make_tilable(websocket: WebSocket):
     #  with autocast("cuda"):
     #      preprocessed_horizontal_offset_image = preprocess(
     #          horizontal_offset_image
-    #      ).to(pipeline.device)
+    #      ).to(PIPELINE.device)
     #      preprocessed_alpha = None
     #      if horizontal_offset_image.mode == "RGBA":
     #          preprocessed_alpha = 1 - preprocess_mask(
     #              horizontal_offset_image.getchannel("A")
-    #          ).to(pipeline.device)
+    #          ).to(PIPELINE.device)
     #
     #      if preprocessed_alpha is not None and not preprocessed_alpha.any():
     #          preprocessed_alpha = None
@@ -489,12 +486,12 @@ async def make_tilable(websocket: WebSocket):
     #      width = (request.border_width - gradient_width) * 2
     #      horizontal_draw.rectangle(((x, 0), (x + width, size[1])), fill=255)
     #      horizontal_preprocessed_mask = preprocess_mask(horizontal_mask).to(
-    #          pipeline.device
+    #          PIPELINE.device
     #      )
     #
     #  horizontal_offset_result = await do_diffusion(
     #      request,
-    #      pipeline.image_to_image,
+    #      PIPELINE.image_to_image,
     #      websocket,
     #      return_images=True,
     #      progress_multiplier=1 / 3,
@@ -516,7 +513,7 @@ async def make_tilable(websocket: WebSocket):
     #              image, 0, int(size[1] / 2)
     #          )
     #          preprocessed_vertical_offset_images.append(
-    #              preprocess(vertical_offset_image).to(pipeline.device)
+    #              preprocess(vertical_offset_image).to(PIPELINE.device)
     #          )
     #
     #      vertical_mask = Image.new("L", size, color=0x00)
@@ -534,12 +531,12 @@ async def make_tilable(websocket: WebSocket):
     #      height = (request.border_width - gradient_width) * 2
     #      vertical_draw.rectangle(((0, y), (size[0], y + height)), fill=255)
     #      vertical_preprocessed_mask = preprocess_mask(vertical_mask).to(
-    #          pipeline.device
+    #          PIPELINE.device
     #      )
     #
     #  vertical_offset_result = await do_diffusion(
     #      request,
-    #      pipeline.image_to_image,
+    #      PIPELINE.image_to_image,
     #      websocket,
     #      return_images=True,
     #      progress_multiplier=1 / 3,
@@ -557,7 +554,7 @@ async def make_tilable(websocket: WebSocket):
     #              image, -int(size[0] / 2), 0
     #          )
     #          preprocessed_center_offset_images.append(
-    #              preprocess(center_offset_image).to(pipeline.device)
+    #              preprocess(center_offset_image).to(PIPELINE.device)
     #          )
     #
     #      center_mask = Image.new("L", size, color=0x00)
@@ -576,12 +573,12 @@ async def make_tilable(websocket: WebSocket):
     #      offset = (request.border_width - gradient_width) * 2
     #      center_draw.rectangle(((x, y), (x + offset, y + offset)), fill=255)
     #      center_preprocessed_mask = preprocess_mask(center_mask).to(
-    #          pipeline.device
+    #          PIPELINE.device
     #      )
     #
     #  images = await do_diffusion(
     #      request,
-    #      pipeline.image_to_image,
+    #      PIPELINE.image_to_image,
     #      websocket,
     #      return_images=True,
     #      progress_multiplier=1 / 3,
@@ -608,7 +605,7 @@ async def make_tilable(websocket: WebSocket):
     #  )
 
 
-@app.get("/ping")
+@APP.get("/ping")
 async def ping():
     return
 
@@ -622,5 +619,5 @@ async def setup():
 if __name__ == "__main__":
     asyncio.run(setup())
     uvicorn.run(
-        app, host=settings.HOST, port=settings.PORT, log_config=LOGGING
+        APP, host=settings.HOST, port=settings.PORT, log_config=LOGGING
     )

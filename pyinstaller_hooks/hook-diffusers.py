@@ -5,7 +5,7 @@ from diffusers.dependency_versions_table import deps
 def hook(hook_api):
     packages = deps.keys()
     print(
-        "---------------------- IMPORTING DIFFUSERS DEPS ----------------------"
+        "--------------------- IMPORTING DIFFUSERS DEPS ---------------------"
     )
     print(list(packages))
 

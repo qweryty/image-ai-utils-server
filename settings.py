@@ -1,3 +1,6 @@
+# pylint: disable=no-self-argument
+# `cls` is important here
+
 import os.path
 from typing import Optional
 

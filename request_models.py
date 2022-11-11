@@ -1,3 +1,6 @@
+# pylint: disable=no-self-argument
+# `cls` is important here
+
 from typing import Optional, List
 
 from PIL import Image

@@ -1,4 +1,10 @@
-# pylint: disable=no-name-in-module, no-member, import-error
+"""
+Provide a wrapper around diffusers' stable diffusion pipelines.
+
+Classes:
+    StablePipe - wrapper for both img2img and inpaint pipelines
+"""
+
 
 import gc
 from typing import Union, List, Optional  # , Awaitable, Callable
@@ -14,7 +20,31 @@ from diffusers.pipelines.stable_diffusion import (
 
 
 class StablePipe:
+    """
+    Wrapper around diffusers' stable diffusion pipelines.
+
+    Easily swap `StableDiffusionImg2ImgPipeline` and
+    `StableDiffusionInpaintPipeline` between CPU and GPU. Intelligently choose
+    which model is needed for which task.
+
+    Instance Attributes:
+        device (`torch.device`, read-only) - which device the active model uses
+        mode (str) - which model is active; one of "img2img" or "inpaint"
+
+    Methods:
+        enable_attention_slicing - better memory performance
+        disable_attention_slicing - better speed performance
+        text_to_image - text prompt to image
+        image_to_image - image and text prompt to image
+    """
+
     def __init__(self, **kwargs):
+        """
+        Initialize pipeline.
+
+        All kwargs are passed to `StableDiffusionImg2ImgPipeline` and
+        `StableDiffusionInpaintPipeline`.
+        """
         self._init_models(**kwargs)
 
     def _init_models(
@@ -46,10 +76,12 @@ class StablePipe:
         )
 
     def enable_attention_slicing(self):
+        """Enable attention slicing for better memory management."""
         self._pipe.enable_attention_slicing()
         self._inpaint_pipe.enable_attention_slicing()
 
     def disable_attention_slicing(self):
+        """Disable attention slicing for better speed."""
         self._pipe.disable_attention_slicing()
         self._inpaint_pipe.disable_attention_slicing()
 
@@ -76,6 +108,19 @@ class StablePipe:
         #  progress_callback: Optional[Callable[[int, int], Awaitable]] = None,
         **kwargs,
     ) -> List[Image.Image]:
+        """
+        Convert a text prompt to an image.
+
+        Arguments:
+            prompt (Union[str, List[str]]) - prompts for diffusing
+            height (int, optional) - image height, default 512
+            width (int, optional) - image width, default 512
+
+        Additional kwargs are passed to `StableDiffusionImg2ImgPipeline`.
+
+        Returns:
+            (List[Image.Image]) - generated image(s)
+        """
         kwargs["num_inference_steps"] = kwargs.pop("num_inference_steps", 50)
         kwargs["guidance_scale"] = kwargs.pop("guidance_scale", 6.0)
         self.mode = "img2img"
@@ -99,7 +144,23 @@ class StablePipe:
         mask: Optional[Image.Image] = None,
         #  progress_callback: Optional[Callable[[int, int], Awaitable]] = None,
         **kwargs,
-    ):
+    ) -> List[Image.Image]:
+        """
+        Generate a new image, using another image as a starting point.
+
+        Encompasses both traditional img2img and inpainting.
+
+        Arguments:
+            prompt (Union[str, List[str]]) - prompt to guide image generation
+            init_image (Union[Image.Image, List[Image.Image]]) - starting image
+            mask (Image.Image, optional) - inpainting mask, default: None
+
+        Additional kwargs are passed to `StableDiffusionImg2ImgPipeline` or
+        `StableDiffusionInpaintPipeline`.
+
+        Returns:
+            (List[Image.Image]) - generated image(s)
+        """
         kwargs["strength"] = kwargs.pop("strength", 0.8)
         kwargs["num_inference_steps"] = kwargs.pop("num_inference_steps", 50)
         kwargs["guidance_scale"] = kwargs.pop("guidance_scale", 6.0)
@@ -130,12 +191,14 @@ class StablePipe:
 
     @property
     def device(self):
+        """Get the current device."""
         if self.mode == "img2img":
             return self._pipe.device
         return self._inpaint_pipe.device
 
     @property
     def mode(self):
+        """Get/set the current mode, i.e., which model is on the GPU."""
         return self._mode
 
     @mode.setter
