@@ -257,7 +257,9 @@ class StablePipe:
             self.mode = "inpaint"
             result = await self._inpaint_pipe(
                 prompt=prompt,
-                image=init_image.convert("RGB"),
+                image=init_image.convert("RGB")
+                if isinstance(init_image, Image.Image)
+                else init_image,
                 mask_image=mask,
                 height=init_image.height,
                 width=init_image.width,
