@@ -7,16 +7,83 @@ Classes:
 
 
 import gc
-from typing import Union, List, Optional  # , Awaitable, Callable
+import inspect
+import re
+from typing import Awaitable, Callable, List, Optional, Union
 
 from PIL import Image
 import torch
 from torchvision import transforms
-
 from diffusers.pipelines.stable_diffusion import (
     StableDiffusionImg2ImgPipeline,
     StableDiffusionInpaintPipeline,
 )
+
+
+# ----------------------------- This gets messy. -----------------------------
+# Why this messy solution was chosen:
+#
+# Using `exec` is decidedly un-pythonic, and prefaces the use of other messy
+# tools like wildcard imports, modifying global variables, and monkey patching.
+#
+# The choice was made to pursue this, however, with the following
+# considerations in mind:
+#   - Having a progress bar in-app is really useful
+#   - Waiting to do more inference until the progress bar connects is silly;
+#     this should be done asynchronously or not at all
+#   - While sub-classing the `diffusers` pipelines would be the most pythonic
+#     solution, the `__call__` methods are very long, and change a lot with
+#     each version release. Sub-classing would involve copy-pasting large
+#     swaths of code, which would need to be updated by hand every time
+#     `diffusers` updates. This is not forward-looking, nor very pythonic.
+#   - Using `re` to _very carefully_ patch in `async` and `await` seems like a
+#     reasonable compromise.
+#
+# If anyone reading this knows of a way to accomplish the same thing, but in a
+# less-horrifying manner, please submit a pull request!
+# ----------------------------------------------------------------------------
+
+# pylint: disable=wildcard-import, line-too-long
+from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion_img2img import *
+from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion_inpaint import *
+
+
+def _deindent(source_string: str) -> str:
+    """Remove leading indent from source code."""
+    lines = source_string.split("\n")
+    indent = len(lines[0]) - len(lines[0].lstrip())
+    return "\n".join(line[indent:] for line in lines)
+
+
+def _async_patch(pipeline_class, timesteps_name: str = "timesteps"):
+    """
+    Patch, in place, pipeline's `__call__` method.
+
+    Makes `__call__` asynchronous.
+    `await`s `callback` function.
+    Changes arguments passed to `callback` function.
+    """
+    # pylint: disable=undefined-variable, global-variable-undefined, exec-used
+    global __call__
+    source = _deindent(inspect.getsource(pipeline_class.__call__))
+    source = re.sub(
+        "def __call__",
+        "async def __call__",
+        source,
+    )
+    source = re.sub(
+        r"callback\(i, t, latents\)",
+        f"await callback(i + 1, len({timesteps_name}))",
+        source,
+    )
+    exec(source, globals())
+    pipeline_class.__call__ = __call__
+    del __call__
+
+
+_async_patch(StableDiffusionImg2ImgPipeline)
+_async_patch(StableDiffusionInpaintPipeline, "timesteps_tensor")
+# -------------------------------- End mess. --------------------------------
 
 
 class StablePipe:
@@ -68,12 +135,14 @@ class StablePipe:
             safety_checker=None,
             **kwargs,
         ).to("cuda")
+        self._pipe.set_progress_bar_config(dynamic_ncols=True)
         self._inpaint_pipe = StableDiffusionInpaintPipeline.from_pretrained(
             inpaint_version,
             use_auth_token=True,
             safety_checker=None,
             **kwargs,
         )
+        self._inpaint_pipe.set_progress_bar_config(dynamic_ncols=True)
 
     def enable_attention_slicing(self):
         """Enable attention slicing for better memory management."""
@@ -99,13 +168,12 @@ class StablePipe:
         return transforms.ToPILImage()(init_tensor[0])
 
     # TODO: combine these to not repeat code
-    # TODO: use progress_callback
     async def text_to_image(
         self,
         prompt: Union[str, List[str]],
         height: Optional[int] = 512,
         width: Optional[int] = 512,
-        #  progress_callback: Optional[Callable[[int, int], Awaitable]] = None,
+        progress_callback: Optional[Callable[[int, int], Awaitable]] = None,
         **kwargs,
     ) -> List[Image.Image]:
         """
@@ -125,12 +193,13 @@ class StablePipe:
         kwargs["guidance_scale"] = kwargs.pop("guidance_scale", 6.0)
         self.mode = "img2img"
         init_image = self._init_image(height, width)
-        result = self._pipe(
+        result = await self._pipe(
             prompt,
             init_image=init_image
             if isinstance(init_image, Image.Image)
             else init_image,
             strength=1.0,
+            callback=progress_callback,
             **kwargs,
         )
         gc.collect()
@@ -142,7 +211,7 @@ class StablePipe:
         prompt: Union[str, List[str]],
         init_image: Union[Image.Image, List[Image.Image]],
         mask: Optional[Image.Image] = None,
-        #  progress_callback: Optional[Callable[[int, int], Awaitable]] = None,
+        progress_callback: Optional[Callable[[int, int], Awaitable]] = None,
         **kwargs,
     ) -> List[Image.Image]:
         """
@@ -166,21 +235,23 @@ class StablePipe:
         kwargs["guidance_scale"] = kwargs.pop("guidance_scale", 6.0)
         if mask is None:
             self.mode = "img2img"
-            result = self._pipe(
+            result = await self._pipe(
                 prompt=prompt,
                 init_image=init_image.convert("RGB")
                 if isinstance(init_image, Image.Image)
                 else init_image,
+                callback=progress_callback,
                 **kwargs,
             )
         else:
             self.mode = "inpaint"
-            result = self._inpaint_pipe(
+            result = await self._inpaint_pipe(
                 prompt=prompt,
                 image=init_image.convert("RGB"),
                 mask_image=mask,
                 height=init_image.height,
                 width=init_image.width,
+                callback=progress_callback,
                 **kwargs,
             )
         gc.collect()
