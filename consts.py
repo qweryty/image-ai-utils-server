@@ -1,7 +1,25 @@
+"""
+Server constants.
+
+Classes:
+    ESRGANModel - upscaling constants
+    GFPGANModel - face-fixing constants
+    ScalingMode - shrink/grow constants
+    ImageFormat - file format constants
+    WebSocketResponseStatus - web socket status constants
+
+Variables:
+    MIN_SEED (int) - minimum allowed random seed
+    MAX_SEED (int) - maximum allowed random seed
+"""
+
+
 from enum import Enum
 
 
 class ESRGANModel(str, Enum):
+    """Model names for upscaling."""
+
     # General
     GENERAL_X4_V3 = "general_x4_v3"
     X4_PLUS = "x4_plus"
@@ -17,23 +35,31 @@ class ESRGANModel(str, Enum):
 
 
 class GFPGANModel(str, Enum):
+    """Model names for fixing faces."""
+
     V1_3 = "V1.3"
     V1_2 = "V1.2"
     V1 = "V1"
 
 
 class ScalingMode(str, Enum):
+    """Constants regarding scaling modes."""
+
     SHRINK = "shrink"
     GROW = "grow"
 
 
 class ImageFormat(str, Enum):
+    """Possible image file formats."""
+
     PNG = "PNG"
     JPEG = "JPEG"
     BMP = "BMP"
 
 
 class WebSocketResponseStatus(str, Enum):
+    """Possible web socket statuses."""
+
     FINISHED = "finished"
     PROGRESS = "progress"
 

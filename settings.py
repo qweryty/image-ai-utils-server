@@ -1,5 +1,18 @@
+"""
+Load user settings from .env.
+
+Classes:
+    Settings - hold the loaded settings
+
+Variables:
+    SETTINGS (Settings) - the loaded settings
+"""
+
+
 # pylint: disable=no-self-argument
 # `cls` is important here
+
+# pylint: disable=too-few-public-methods
 
 import os.path
 from typing import Optional
@@ -33,4 +46,4 @@ class Settings(BaseSettings):
 
 
 load_dotenv()
-settings = Settings()
+SETTINGS = Settings()

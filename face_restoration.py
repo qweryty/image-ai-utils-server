@@ -1,3 +1,17 @@
+"""
+Tools for repairing faces with GFPGAN.
+
+Functions:
+    restore_face - perform face restoration
+
+Variables:
+    LOGGER (logging.Logger) - logging
+    GFPGAN_BASE (str) - base url for downloading models
+    GFPGAN_URLS (List[str]) - list of model urls
+    MODEL_PATHS (Dict[GFPGANModel, str]) - file paths to model storage
+"""
+
+
 import logging
 
 import numpy as np
@@ -10,7 +24,7 @@ from esrgan_upscaler import get_upsampler
 from request_models import ESRGANModel, GFPGANModel
 from utils import resolve_path
 
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 
 GFPGAN_BASE = "https://github.com/TencentARC/GFPGAN/releases/download/"
@@ -39,7 +53,25 @@ def restore_face(
     upscale: int = 2,
     aligned: bool = False,
     only_center_face: bool = False,
-):
+) -> Image.Image:
+    """
+    Perform face restoration on an image.
+
+    Arguments:
+        image (Image.Image) - input image containing face(s)
+
+    Optional Arguments:
+        model_type (GFPGANModel) - model to load (default: GFPGANModel.V1_3)
+        use_real_esrgan (bool) - use RealESRGAN to upscale (default: True)
+        bg_tile (int) - tile parameter for upscaling (default: 400)
+        upscale (int) - amount to upscale (default: 2)
+        aligned (bool) - if faces are pre-aligned (default: False)
+        only_center_face (bool) - only process the most central face
+            (default: False)
+
+    Returns:
+        fixed (Image.Image) - image with fixed face
+    """
     # ---------------------- set up background upsampler ----------------------
     if use_real_esrgan:
         bg_upsampler = get_upsampler(

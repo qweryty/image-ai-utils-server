@@ -1,6 +1,13 @@
+"""
+Settings for logging.
+
+Variables:
+    LOGGING (dict) - logging settings
+"""
+
 import logging.config
 
-from settings import settings
+from settings import SETTINGS
 from utils import resolve_path
 
 LOGGING = {
@@ -8,13 +15,13 @@ LOGGING = {
     "disable_existing_loggers": False,
     "handlers": {
         "default": {
-            "level": settings.LOG_LEVEL.upper(),
+            "level": SETTINGS.LOG_LEVEL.upper(),
             "class": "logging.StreamHandler",
             "stream": "ext://sys.stdout",
             "formatter": "verbose",
         },
         "file_handler": {
-            "level": settings.FILE_LOG_LEVEL.upper(),
+            "level": SETTINGS.FILE_LOG_LEVEL.upper(),
             "formatter": "verbose",
             "class": "logging.FileHandler",
             "filename": resolve_path("messages.log"),
@@ -52,7 +59,7 @@ LOGGING = {
             "propagate": False,
         },
         "": {
-            "level": settings.LOG_LEVEL.upper(),
+            "level": SETTINGS.LOG_LEVEL.upper(),
             "handlers": ["default", "file_handler"],
             "propagate": True,
         },

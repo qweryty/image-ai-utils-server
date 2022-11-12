@@ -1,3 +1,28 @@
+"""
+Primary server tools.
+
+Functions:
+    authorize - authorize user's credentials
+    authorize_web_socket - authorize user's credentials on the web socket
+    websocket_handler - decorator to pass functions to web socket
+    do_diffusion - perform diffusion
+    text_to_image - diffusion from text
+    image_to_image - diffusion from text and image
+    inpainting - diffusion on a masked image
+    gobig - scale up an image and diffuse details
+    upscale - scale up an image
+    restore_face - fix faces
+    make_tilable - diffusion on image edges to be tilable
+    ping - measure latency
+    setup - download models
+
+Variables:
+    LOGGER (logging.Logger) - logging
+    SECURITY (fastapi.security.HTTPBasic) - security credentials
+    APP (FastAPI) - server application
+    PIPELINE (StablePipe) - diffusion model pipeline
+"""
+
 import asyncio
 import functools
 from json import JSONDecodeError
@@ -44,7 +69,7 @@ from request_models import (
     MakeTilableRequest,
     MakeTilableResponse,
 )
-from settings import settings
+from settings import SETTINGS
 from utils import (
     base64url_to_image,
     image_to_base64url,
@@ -52,23 +77,42 @@ from utils import (
     download_models,
 )
 
-logger = logging.getLogger(__name__)
-security = HTTPBasic()
+LOGGER = logging.getLogger(__name__)
+SECURITY = HTTPBasic()
 
 
-async def authorize(credentials: HTTPBasicCredentials = Depends(security)):
+async def authorize(credentials: HTTPBasicCredentials = Depends(SECURITY)):
+    """
+    Authorize user's credentials.
+
+    Optional Arguments:
+        credentials (HTTPBasicCredentials) - login credentials
+            (default: Depends(security))
+
+    Raises:
+        HTTPException - if credentials don't match
+    """
     if (
-        credentials.username != settings.USERNAME
-        or credentials.password != settings.PASSWORD
+        credentials.username != SETTINGS.USERNAME
+        or credentials.password != SETTINGS.PASSWORD
     ):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
 
 
 async def authorize_web_socket(websocket: WebSocket) -> bool:
+    """
+    Authorize user's credentials on the web socket.
+
+    Arguments:
+        websocket (WebSocket) - web socket to check
+
+    Returns:
+        authorized (bool) - `True` if authorized, else `False`
+    """
     credentials = await websocket.receive_json()
     if (
-        credentials.get("username") != settings.USERNAME
-        or credentials.get("password") != settings.PASSWORD
+        credentials.get("username") != SETTINGS.USERNAME
+        or credentials.get("password") != SETTINGS.PASSWORD
     ):
         await websocket.close(
             status.WS_1008_POLICY_VIOLATION, "Authorization error"
@@ -78,7 +122,18 @@ async def authorize_web_socket(websocket: WebSocket) -> bool:
     return True
 
 
-def websocket_handler(path, app):
+def websocket_handler(path: str, app: FastAPI) -> Callable:
+    """
+    Decorate functions to be handled by the web socket.
+
+    Arguments:
+        path (str) - web socket path corresponding to function call
+        app (FastAPI) - web socket app
+
+    Returns:
+        decorator (Callable) - handled by web socket
+    """
+
     def decorator(handler):
         @functools.wraps(handler)
         async def wrapper(websocket: WebSocket):
@@ -110,13 +165,13 @@ APP.add_middleware(GZipMiddleware, minimum_size=1000)
 
 try:
     PIPELINE = StablePipe(
-        cache_dir=settings.DIFFUSERS_CACHE_PATH,
-        optimized=settings.USE_OPTIMIZED_MODE,
+        cache_dir=SETTINGS.DIFFUSERS_CACHE_PATH,
+        optimized=SETTINGS.USE_OPTIMIZED_MODE,
     )
-    if settings.USE_OPTIMIZED_MODE:
+    if SETTINGS.USE_OPTIMIZED_MODE:
         PIPELINE.enable_attention_slicing()
 except Exception as exception:
-    logger.exception(exception)
+    LOGGER.exception(exception)
     raise exception
 
 
@@ -124,19 +179,46 @@ async def do_diffusion(
     request: BaseImageGenerationRequest,
     diffusion_method: Callable,
     websocket: WebSocket,
-    batched_params: Optional[Dict[str, List[Any]]] = None,
+    #  batched_params: Optional[Dict[str, List[Any]]] = None,
     return_images: bool = False,
     progress_multiplier: float = 1.0,
     progress_offset: float = 0.0,
     **kwargs,
 ) -> Union[ImageArrayResponse, List[Image.Image]]:
+    """
+    Perform diffusion.
+
+    Arguments:
+        request (BaseImageGenerationRequest) - request from web socket
+        diffusion_method (Callable) - method used to perform the diffusion
+        websocket (WebSocket) - web socket
+
+    Optional Arguments:
+        return_images (bool) - return list rather than ImageArrayResponse
+            (default: `False`)
+        progress_multiplier (float) - scale progress by this factor
+            (default: 1.0)
+        progress_offset (float) - offset progress by this amount
+            (default: 0.0)
+
+    Additional kwargs are passed to `diffusion_method`.
+
+    Returns:
+        images (List[Image.Image] if `return_images` else ImageArrayResponse)
+
+    Raises:
+        BatchSizeIsTooLargeException - if batch size > 1 and a CUDA memory
+            error occurs
+        AspectRatioTooWideException - if batch size == 1 and a CUDA memory
+            error occurs
+    """
     if request.seed is not None:
         generator = torch.Generator("cuda").manual_seed(request.seed)
     else:
         generator = None
 
-    if batched_params is None:
-        batched_params = {}
+    #  if batched_params is None:
+    #      batched_params = {}
     with autocast("cuda"):
         with torch.inference_mode():
             for batch_size in range(
@@ -151,11 +233,11 @@ async def do_diffusion(
                     images = []
 
                     for i in range(num_batches):
-                        batch_kwargs = {}
-                        for key, value in batched_params.items():
-                            batch_kwargs[key] = value[
-                                i * batch_size : (i + 1) * batch_size
-                            ]
+                        #  batch_kwargs = {}
+                        #  for key, value in batched_params.items():
+                        #      batch_kwargs[key] = value[
+                        #          i * batch_size : (i + 1) * batch_size
+                        #      ]
 
                         async def progress_callback(
                             batch_step: int, total_batch_steps: int
@@ -188,15 +270,15 @@ async def do_diffusion(
                             generator=generator,
                             guidance_scale=request.guidance_scale,
                             progress_callback=progress_callback,
-                            **batch_kwargs,
+                            #  **batch_kwargs,
                             **kwargs,
                         )
                         images.extend(new_images)
 
                     if last_batch_size:
-                        batch_kwargs = {}
-                        for key, value in batched_params.items():
-                            batch_kwargs[key] = value[-last_batch_size:]
+                        #  batch_kwargs = {}
+                        #  for key, value in batched_params.items():
+                        #      batch_kwargs[key] = value[-last_batch_size:]
 
                         async def progress_callback(
                             batch_step: int, total_batch_steps: int
@@ -224,14 +306,14 @@ async def do_diffusion(
                             generator=generator,
                             guidance_scale=request.guidance_scale,
                             progress_callback=progress_callback,
-                            **batch_kwargs,
+                            #  **batch_kwargs,
                             **kwargs,
                         )
                         images.extend(new_images)
                     break
                 except RuntimeError as exc:
                     if request.try_smaller_batch_on_fail:
-                        logger.warning(
+                        LOGGER.warning(
                             f"Batch size {batch_size} was too large, "
                             "trying smaller"
                         )
@@ -249,6 +331,7 @@ async def do_diffusion(
 #  (or can set up an external scheduler and use this as internal endpoint)
 @websocket_handler("/text_to_image", APP)
 async def text_to_image(websocket: WebSocket):
+    """Perform diffusion from a text prompt."""
     request = TextToImageRequest(**(await websocket.receive_json()))
     width, height = size_from_aspect_ratio(
         request.aspect_ratio, request.scaling_mode
@@ -266,33 +349,17 @@ async def text_to_image(websocket: WebSocket):
 
 @websocket_handler("/image_to_image", APP)
 async def image_to_image(websocket: WebSocket):
+    """Perform diffusion from a text prompt and starting image."""
     request = ImageToImageRequest(**(await websocket.receive_json()))
     source_image = base64url_to_image(request.source_image)
     aspect_ratio = source_image.width / source_image.height
     size = size_from_aspect_ratio(aspect_ratio, request.scaling_mode)
-
-    source_image = source_image.resize(size)
-
-    #  with autocast("cuda"):
-    #      preprocessed_source_image = preprocess(source_image).to(
-    #          PIPELINE.device
-    #      )
-    #      preprocessed_alpha = None
-    #      if source_image.mode == "RGBA":
-    #          preprocessed_alpha = 1 - preprocess_mask(
-    #              source_image.getchannel("A")
-    #          ).to(PIPELINE.device)
-    #
-    #      if preprocessed_alpha is not None and not preprocessed_alpha.any():
-    #          preprocessed_alpha = None
-
     response = await do_diffusion(
         request,
         PIPELINE.image_to_image,
         websocket,
-        init_image=source_image,
+        init_image=source_image.resize(size),
         strength=request.strength,
-        #  alpha=preprocessed_alpha,
     )
     await websocket.send_json(
         {
@@ -304,53 +371,22 @@ async def image_to_image(websocket: WebSocket):
 
 @websocket_handler("/inpainting", APP)
 async def inpainting(websocket: WebSocket):
+    """Perform diffusion from a text prompt on masked areas of an image."""
     request = InpaintingRequest(**(await websocket.receive_json()))
     source_image = base64url_to_image(request.source_image)
     aspect_ratio = source_image.width / source_image.height
     size = size_from_aspect_ratio(aspect_ratio, request.scaling_mode)
-
-    source_image = source_image.resize(size).convert("RGB")
     mask = None
     if request.mask:
         mask = base64url_to_image(request.mask).resize(size)
-
-    #  with autocast("cuda"):
-    #      preprocessed_source_image = preprocess(source_image).to(
-    #          PIPELINE.device
-    #      )
-    #      preprocessed_mask = None
-    #      if mask is not None:
-    #          preprocessed_mask = preprocess_mask(mask).to(PIPELINE.device)
-    #
-    #      if preprocessed_mask is not None and not preprocessed_mask.any():
-    #          preprocessed_mask = None
-    #
-    #      preprocessed_alpha = None
-    #      if source_image.mode == "RGBA":
-    #          preprocessed_alpha = 1 - preprocess_mask(
-    #              source_image.getchannel("A")
-    #          ).to(PIPELINE.device)
-    #
-    #      if preprocessed_alpha is not None and not preprocessed_alpha.any():
-    #          preprocessed_alpha = None
-    #
-    #      if preprocessed_alpha is not None:
-    #          if preprocessed_mask is not None:
-    #              preprocessed_mask = torch.max(
-    #                  preprocessed_mask, preprocessed_alpha
-    #              )
-    #          else:
-    #              preprocessed_mask = preprocessed_alpha
-
     # TODO return error if mask empty
     response = await do_diffusion(
         request,
         PIPELINE.image_to_image,
         websocket,
-        init_image=source_image,
+        init_image=source_image.resize(size).convert("RGB"),
         strength=request.strength,
         mask=mask,
-        #  alpha=preprocessed_alpha,
     )
     await websocket.send_json(
         {
@@ -362,6 +398,7 @@ async def inpainting(websocket: WebSocket):
 
 @websocket_handler("/gobig", APP)
 async def gobig(websocket: WebSocket):
+    """Scale up and perform piecewise diffusion on an image."""
     request = GoBigRequest(**(await websocket.receive_json()))
 
     if request.seed is not None:
@@ -401,6 +438,7 @@ async def gobig(websocket: WebSocket):
 
 @APP.post("/upscale")
 async def upscale(request: UpscaleRequest) -> ImageResponse:
+    """Scale up an image using RealESRGAN."""
     try:
         source_image = base64url_to_image(request.image)
         while (
@@ -426,6 +464,7 @@ async def upscale(request: UpscaleRequest) -> ImageResponse:
 
 @APP.post("/restore_face")
 async def restore_face(request: FaceRestorationRequest) -> ImageResponse:
+    """Fix faces using GFPGAN."""
     if request.model_type == GFPGANModel.V1:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -446,6 +485,8 @@ async def restore_face(request: FaceRestorationRequest) -> ImageResponse:
 
 @websocket_handler("/make_tilable", APP)
 async def make_tilable(websocket: WebSocket):
+    """Perform diffusion on image edges to make it tilable."""
+    # pylint: disable=invalid-name
     request = MakeTilableRequest(**(await websocket.receive_json()))
     source_image = base64url_to_image(request.source_image)
     aspect_ratio = source_image.width / source_image.height
@@ -456,15 +497,6 @@ async def make_tilable(websocket: WebSocket):
     request.num_variants = 1  # TODO: actually respect user's choice
     # Horizontal offset
     with autocast("cuda"):
-        #  preprocessed_alpha = None
-        #  if horizontal_offset_image.mode == "RGBA":
-        #      preprocessed_alpha = 1 - preprocess_mask(
-        #          horizontal_offset_image.getchannel("A")
-        #      ).to(PIPELINE.device)
-        #
-        #  if preprocessed_alpha is not None and not preprocessed_alpha.any():
-        #      preprocessed_alpha = None
-
         gradient_width = request.border_width * request.border_softness
         if int(gradient_width) != 0:
             gradient_step = 255 / gradient_width
@@ -494,7 +526,6 @@ async def make_tilable(websocket: WebSocket):
         init_image=horizontal_offset_image,
         mask=horizontal_mask,
         strength=request.strength,
-        #  alpha=preprocessed_alpha,
     )
 
     # Vertical offset
@@ -599,10 +630,12 @@ async def make_tilable(websocket: WebSocket):
 
 @APP.get("/ping")
 async def ping():
+    """Do nothing, to measure ping speed."""
     return
 
 
 async def setup():
+    """Download GFPGAN and RealESRGAN models."""
     await download_models(
         face_restoration.GFPGAN_URLS + esrgan_upscaler.ESRGAN_URLS
     )
@@ -611,5 +644,5 @@ async def setup():
 if __name__ == "__main__":
     asyncio.run(setup())
     uvicorn.run(
-        APP, host=settings.HOST, port=settings.PORT, log_config=LOGGING
+        APP, host=SETTINGS.HOST, port=SETTINGS.PORT, log_config=LOGGING
     )

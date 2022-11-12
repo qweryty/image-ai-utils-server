@@ -1,3 +1,15 @@
+"""
+Utility functions for server.
+
+Functions:
+    image_to_base64url - convert image to bytes
+    base64url_to_image - convert bytes back to image
+    size_from_aspect_ratio - pixel proportions from ratio
+    resolve_path - absolute path
+    download_models - download model weights
+"""
+
+
 import asyncio
 import logging
 import mimetypes
@@ -9,18 +21,31 @@ from typing import Tuple, List
 import aiofiles
 import httpx
 from PIL import Image
-
 # TODO use common utils
 from tqdm import tqdm
 
-from consts import ScalingMode
+from consts import ImageFormat, ScalingMode
 
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 
 def image_to_base64url(
-    image: Image.Image, output_format: str = "PNG"
+    image: Image.Image, output_format: ImageFormat = ImageFormat.PNG
 ) -> bytes:
+    """
+    Convert image to bytes string.
+
+    Arguments:
+        image (Image.Image) - image to convert
+
+    Optional Arguments:
+        output_format (ImageFormat) - filetype for output
+            (default: ImageFormat.PNG)
+
+    Returns:
+        bytes (bytes) - encoded image
+    """
+    # pylint: disable=line-too-long
     data_string = f'data:{mimetypes.types_map[f".{output_format.lower()}"]};base64,'.encode()
     buffer = BytesIO()
     image.save(buffer, format=output_format)
@@ -28,6 +53,15 @@ def image_to_base64url(
 
 
 def base64url_to_image(source: bytes) -> Image.Image:
+    """
+    Convert a bytes string back to an image.
+
+    Arguments:
+        source (bytes) - as encoded with `image_to_base64url`
+
+    Returns:
+        image (Image.Image) - decoded image
+    """
     _, data = source.split(b",")
     return Image.open(BytesIO(b64decode(data)))
 
@@ -35,6 +69,18 @@ def base64url_to_image(source: bytes) -> Image.Image:
 def size_from_aspect_ratio(
     aspect_ratio: float, scaling_mode: ScalingMode
 ) -> Tuple[int, int]:
+    """
+    Return a standard size from an aspect ratio.
+
+    Arguments:
+        aspect_ratio (float) - ratio of width:height
+        scaling_mode (ScalingMode) - if `ScalingMode.GROW` then smallest side
+            will be 512, else largest side will be 512
+
+    Returns:
+        width (int) - pixels wide
+        height (int) - pixels tall
+    """
     if (scaling_mode == ScalingMode.GROW) == (aspect_ratio > 1):
         height = 512
         width = int(height * aspect_ratio)
@@ -47,10 +93,17 @@ def size_from_aspect_ratio(
 
 
 def resolve_path(path: str) -> str:
+    """Get absolute path from relative path."""
     return os.path.abspath(os.path.join(os.path.dirname(__file__), path))
 
 
 async def download_models(models: List[str]):
+    """
+    Asynchronously download models.
+
+    Arguments:
+        models (List[str]) - urls pointing to model weights
+    """
     models_dir = resolve_path("models")
     os.makedirs(models_dir, exist_ok=True)
 
@@ -60,7 +113,7 @@ async def download_models(models: List[str]):
         if os.path.exists(file_path):
             return
 
-        logger.info(f"Downloading {file_path} {position}")
+        LOGGER.info(f"Downloading {file_path} {position}")
         async with aiofiles.open(file_path, mode="wb") as outfile:
             async with httpx.AsyncClient() as client:
                 async with client.stream(

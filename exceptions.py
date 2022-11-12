@@ -1,3 +1,18 @@
+"""
+Server Exceptions.
+
+Classes:
+    BaseWebSocketException - unexpected web socket error
+    BatchSizeIsTooLargeException - batch doesn't fit in memory
+    AspectRatioTooWideException - single image doesn't fit in memory
+    CouldntFixFaceException - error in face fixing
+"""
+
+
+# pylint: disable=missing-docstring
+# Classes are quite descriptive on their own.
+
+
 from fastapi import HTTPException, status
 
 

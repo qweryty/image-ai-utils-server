@@ -1,3 +1,16 @@
+"""
+Tools for upscaling images with RealESRGAN.
+
+Functions:
+    get_upsampler - load correct model
+    upscale - perform upscaling
+
+Variables:
+    ESRGAN_BASE (str) - base url for downloading models
+    ESRGAN_URLS (List[str]) - list of model urls
+    MODEL_PATHS (Dict[ESRGANModel, str]) - file paths to model storage
+"""
+
 import numpy as np
 from PIL import Image
 from basicsr.archs.rrdbnet_arch import RRDBNet
@@ -40,6 +53,21 @@ def get_upsampler(
     pre_pad: int = 0,
     half: bool = True,
 ) -> RealESRGANer:
+    """
+    Load RealESRGAN model.
+
+    Arguments:
+        model_type (ESRGANModel) - model to load
+
+    Arguments used to initialize `RealESRGANer`:
+        tile (int) - (default: 0)
+        tile_pad (int) - (default: 10)
+        pre_pad (int) - (default: 0)
+        half (bool) - (default: True)
+
+    Returns:
+        upscaler (RealESRGANer) - upscaling model
+    """
     # x4 RRDBNet model
     if model_type in [
         ESRGANModel.X4_PLUS,
@@ -121,20 +149,26 @@ def get_upsampler(
 def upscale(
     image: Image.Image,
     model_type: ESRGANModel = ESRGANModel.GENERAL_X4_V3,
-    tile: int = 0,
-    tile_pad: int = 10,
-    pre_pad: int = 0,
-    half: bool = True,
-    outscale: float = 4,
-):
-    upsampler = get_upsampler(
-        model_type=model_type,
-        tile=tile,
-        tile_pad=tile_pad,
-        pre_pad=pre_pad,
-        half=half,
-    )
+    outscale: float = 4.0,
+    **kwargs,
+) -> Image.Image:
+    """
+    Upscale an image using RealESRGAN.
 
+    Arguments:
+        image (Image.Image) - the image to upscale
+
+    Optional Arguments:
+        model_type (ESRGANModel) - model to load
+            (default: ESRGANModel.GENERAL_X4_V3)
+        outscale (float) - amount to scale (default: 4.0)
+
+    Additional kwargs are passed to `get_upsampler`.
+
+    Returns:
+        upscaled (Image.Image) - upscaled image
+    """
+    upsampler = get_upsampler(model_type=model_type, **kwargs)
     numpy_image = np.asarray(image)
     output, _ = upsampler.enhance(numpy_image, outscale=outscale)
     return Image.fromarray(np.uint8(output))

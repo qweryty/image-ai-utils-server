@@ -1,3 +1,31 @@
+"""Tools for intelligently uscaling images.
+
+Functions:
+    do_gobig - upscale an image using RealESRGAN and Stable Diffusion
+
+Some contents of this file are copyright (c) 2022 Jeffrey Quesnelle and
+fall under the MIT License:
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"""
+
+
 # pylint: disable=invalid-name
 
 # https://github.com/lowfuel/progrock-stable
@@ -14,7 +42,7 @@ from pipeline import StablePipe
 
 
 # Alternative method composites a grid of images at the positions provided
-def grid_merge(
+def _grid_merge(
     source: Image.Image, slices: List[Tuple[Image.Image, int, int]]
 ):
     source = source.convert("RGBA")
@@ -27,7 +55,7 @@ def grid_merge(
     return source
 
 
-def grid_coords(
+def _grid_coords(
     target: Tuple[int, int], slice_size: Tuple[int, int], overlap: int
 ):
     # Generate a list of coordinate tuples for our sections, in order of how
@@ -78,7 +106,7 @@ def grid_coords(
             dy = dy + slice_y - overlap
             dy_list.append((rx, dy))
     # Calculate a new size that will fill the canvas, which will be optionally
-    # used in grid_slice and go_big.
+    # used in _grid_slice and go_big.
     last_coordx, last_coordy = dy_list[-1:][0]
     render_edgey = (
         last_coordy + slice_y
@@ -110,9 +138,11 @@ def grid_coords(
     return result, (new_edgex, new_edgey)
 
 
-def grid_slice(source: Image.Image, overlap: int, slice_size: Tuple[int, int]):
+def _grid_slice(
+    source: Image.Image, overlap: int, slice_size: Tuple[int, int]
+):
     width, height = slice_size
-    coordinates, new_size = grid_coords(source.size, slice_size, overlap)
+    coordinates, new_size = _grid_coords(source.size, slice_size, overlap)
     slices = []
     for coordinate in coordinates:
         x, y = coordinate
@@ -131,12 +161,42 @@ async def do_gobig(
     esrgan_model: ESRGANModel,
     pipeline: StablePipe,
     resampling_mode: Resampling = Resampling.LANCZOS,
-    strength: float = 0.8,
+    strength: float = 0.3,
     num_inference_steps: Optional[int] = 50,
     guidance_scale: Optional[float] = 7.5,
-    generator: Optional[torch.Generator] = None,
     progress_callback: Optional[Callable[[float], Awaitable]] = None,
+    **kwargs,
 ) -> Image.Image:
+    """
+    Perform high-resolution upscaling with RealESRGAN and Stable Diffusion.
+
+    Arguments:
+        input_image (Image.Image) - image to upscale
+        prompt (str) - prompt to guide Stable Diffusion
+        maximize (bool) - increase final image size to use up blank space
+        target_width (int) - final desired width
+        target_height (int) - final desired height
+        overlap (int) - fuzz amount that Stable Diffusion chunks will overlap
+        use_real_esrgan (bool) - upscale with RealESRGAN rather than PIL
+        esrgan_model (ESRGANModel) - RealESRGAN model to use
+        pipeline (StablePipe) - Stable Diffusion pipeline for rendering
+
+    Optional Arguments:
+        resampling_mode (Resampling) - method for scaling images when using PIL
+            (default: Resampling.LANCZOS)
+        strength (float) - strength for Stable Diffusion render (default: 0.3)
+        num_inference_steps (Optional[int]) - number of diffusion iterations
+            (default: 50)
+        guidance_scale (Optional[float]) - guidance scale for Diffusion render
+            (default: 7.5)
+        progress_callback (Optional[Callable[[float], Awaitable]]) - send
+            progress information to web socket (default: None)
+
+    Additional arguments are passed to `pipeline` at render time.
+
+    Returns:
+        ret_value (Image.Image) - describe ret_value
+    """
     # get our render size for each slice, and our target size
     slice_width = slice_height = 512
     if use_real_esrgan:
@@ -144,13 +204,13 @@ async def do_gobig(
     target_image = input_image.resize(
         (target_width, target_height), resampling_mode
     )
-    slices, new_canvas_size = grid_slice(
+    slices, new_canvas_size = _grid_slice(
         target_image, overlap, (slice_width, slice_height)
     )
     if maximize:
         # increase our final image size to use up blank space
         target_image = input_image.resize(new_canvas_size, resampling_mode)
-        slices, new_canvas_size = grid_slice(
+        slices, new_canvas_size = _grid_slice(
             target_image, overlap, (slice_width, slice_height)
         )
     input_image.close()
@@ -182,8 +242,8 @@ async def do_gobig(
                         strength=strength,
                         num_inference_steps=num_inference_steps,
                         guidance_scale=guidance_scale,
-                        generator=generator,
                         progress_callback=chunk_progress_callback,
+                        **kwargs,
                     )
                 )[0]
                 # result_slice.copy?
@@ -204,6 +264,6 @@ async def do_gobig(
     for better_slice, x, y in better_slices:
         better_slice.putalpha(alpha)
         finished_slices.append((better_slice, x, y))
-    final_output = grid_merge(target_image, finished_slices)
+    final_output = _grid_merge(target_image, finished_slices)
 
     return final_output
