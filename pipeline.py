@@ -167,7 +167,6 @@ class StablePipe:
         init_tensor = (init_tensor["sample"] / 2 + 0.5).clamp(0, 1)
         return transforms.ToPILImage()(init_tensor[0])
 
-    # TODO: combine these to not repeat code
     async def text_to_image(
         self,
         prompt: Union[str, List[str]],
@@ -189,22 +188,13 @@ class StablePipe:
         Returns:
             (List[Image.Image]) - generated image(s)
         """
-        kwargs["num_inference_steps"] = kwargs.pop("num_inference_steps", 50)
-        kwargs["guidance_scale"] = kwargs.pop("guidance_scale", 6.0)
-        self.mode = "img2img"
-        init_image = self._init_image(height, width)
-        result = await self._pipe(
-            prompt,
-            init_image=init_image
-            if isinstance(init_image, Image.Image)
-            else init_image,
-            strength=1.0,
-            callback=progress_callback,
+        kwargs["strength"] = 1.0
+        return await self.image_to_image(
+            prompt=prompt,
+            init_image=self._init_image(height, width),
+            progress_callback=progress_callback,
             **kwargs,
         )
-        gc.collect()
-        torch.cuda.empty_cache()
-        return result["images"]
 
     async def image_to_image(
         self,
