@@ -109,15 +109,23 @@ class StablePipe:
         """
         Initialize pipeline.
 
-        All kwargs are passed to `StableDiffusionImg2ImgPipeline` and
+        Arguments:
+            version (str) - stable diffusion version to use (default: 5)
+            inpaint_version (str) - inpaint version to use
+                (default: "runwayml/stable-diffusion-inpainting")
+            optimized (bool) - if True, load 16-bit rather than 32-bit
+                (default: True)
+
+        Additional kwargs are passed to `StableDiffusionImg2ImgPipeline` and
         `StableDiffusionInpaintPipeline`.
         """
         self._init_models(**kwargs)
 
     def _init_models(
         self,
-        version="5",
-        inpaint_version="runwayml/stable-diffusion-inpainting",
+        version: str = "5",
+        inpaint_version: str = "runwayml/stable-diffusion-inpainting",
+        optimized: bool = True,
         **kwargs,
     ):
         try:
@@ -128,11 +136,21 @@ class StablePipe:
             )
         except ValueError:
             model_name = version
+
+        if optimized is True:
+            torch_dtype = torch.float16
+            revision = "fp16"
+        else:
+            torch_dtype = None
+            revision = None
+
         self._mode = "img2img"
         self._pipe = StableDiffusionImg2ImgPipeline.from_pretrained(
             model_name,
             use_auth_token=True,
             safety_checker=None,
+            torch_dtype=torch_dtype,
+            revision=revision,
             **kwargs,
         ).to("cuda")
         self._pipe.set_progress_bar_config(dynamic_ncols=True)
@@ -140,6 +158,8 @@ class StablePipe:
             inpaint_version,
             use_auth_token=True,
             safety_checker=None,
+            torch_dtype=torch_dtype,
+            revision=revision,
             **kwargs,
         )
         self._inpaint_pipe.set_progress_bar_config(dynamic_ncols=True)

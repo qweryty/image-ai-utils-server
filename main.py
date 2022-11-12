@@ -109,7 +109,10 @@ APP = FastAPI(dependencies=[Depends(authorize)])
 APP.add_middleware(GZipMiddleware, minimum_size=1000)
 
 try:
-    PIPELINE = StablePipe(cache_dir=settings.DIFFUSERS_CACHE_PATH)
+    PIPELINE = StablePipe(
+        cache_dir=settings.DIFFUSERS_CACHE_PATH,
+        optimized=settings.USE_OPTIMIZED_MODE,
+    )
     if settings.USE_OPTIMIZED_MODE:
         PIPELINE.enable_attention_slicing()
 except Exception as exception:
