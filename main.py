@@ -40,25 +40,18 @@ from fastapi import (
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from PIL import Image, ImageChops, ImageDraw
-import torch
 from torch import autocast
 import uvicorn
 
 from batcher import do_diffusion
 from consts import WebSocketResponseStatus, GFPGANModel
 import esrgan_upscaler
-from exceptions import (
-    BatchSizeIsTooLargeException,
-    AspectRatioTooWideException,
-    BaseWebSocketException,
-)
+from exceptions import BaseWebSocketException
 import face_restoration
 from gobig import do_gobig
 from logging_settings import LOGGING
 from pipeline import StablePipe
 from request_models import (
-    BaseImageGenerationRequest,
-    ImageArrayResponse,
     ImageToImageRequest,
     TextToImageRequest,
     GoBigRequest,
@@ -248,32 +241,11 @@ async def inpainting(websocket: WebSocket):
 async def gobig(websocket: WebSocket):
     """Scale up and perform piecewise diffusion on an image."""
     request = GoBigRequest(**(await websocket.receive_json()))
-
-    if request.seed is not None:
-        generator = torch.Generator("cuda").manual_seed(request.seed)
-    else:
-        generator = None
-
-    async def progress_callback(progress: float):
-        await websocket.send_json(
-            {"status": WebSocketResponseStatus.PROGRESS, "progress": progress}
-        )
-
     upscaled = await do_gobig(
+        request=request,
+        websocket=websocket,
         input_image=base64url_to_image(request.image),
-        prompt=request.prompt,
-        maximize=request.maximize,
-        target_width=request.target_width,
-        target_height=request.target_height,
-        overlap=request.overlap,
-        use_real_esrgan=request.use_real_esrgan,
-        esrgan_model=request.esrgan_model,
         pipeline=PIPELINE,
-        strength=request.strength,
-        num_inference_steps=request.num_inference_steps,
-        guidance_scale=request.guidance_scale,
-        generator=generator,
-        progress_callback=progress_callback,
     )
     response = ImageResponse(image=image_to_base64url(upscaled))
     await websocket.send_json(

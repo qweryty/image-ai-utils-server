@@ -29,15 +29,15 @@ SOFTWARE.
 # pylint: disable=invalid-name
 
 # https://github.com/lowfuel/progrock-stable
-from typing import Tuple, Optional, List, Callable, Awaitable
+from typing import Tuple, List
 
-import torch
+from fastapi import WebSocket
 from PIL import Image, ImageDraw
 from PIL.Image import Resampling
-from torch import autocast
 
+from batcher import do_diffusion
 from esrgan_upscaler import upscale
-from request_models import ESRGANModel
+from request_models import GoBigRequest
 from pipeline import StablePipe
 
 
@@ -155,68 +155,27 @@ def _grid_slice(
 
 # Upscale our image before inference.
 def _prescale(
-    input_image: Image.Image, esrgan_model: ESRGANModel, **kwargs
+    request: GoBigRequest,
+    input_image: Image.Image,
+    slice_size: Tuple[int, int],
+    resampling_mode: Resampling,
 ) -> Tuple[Image.Image, List[Tuple[Image.Image, int, int]], dict]:
-    target_size = (
-        kwargs.pop("target_width", 1024),
-        kwargs.pop("target_height", 1024),
-    )
-    resampling_mode = kwargs.pop("resampling_mode", Resampling.LANCZOS)
-    overlap = kwargs.get("overlap", 128)
-    slice_size = kwargs.pop("slice_size")
+    target_size = (request.target_width, request.target_height)
 
-    if kwargs.pop("use_real_esrgan", True):
-        input_image = upscale(input_image, esrgan_model)
+    if request.use_real_esrgan:
+        input_image = upscale(input_image, request.esrgan_model)
     target_image = input_image.resize(target_size, resampling_mode)
-    slices, new_canvas_size = _grid_slice(target_image, overlap, slice_size)
-    if kwargs.pop("maximize", True):
+    slices, new_canvas_size = _grid_slice(
+        target_image, request.overlap, slice_size
+    )
+    if request.maximize:
         # Increase our final image size to use up blank space.
         target_image = input_image.resize(new_canvas_size, resampling_mode)
         slices, new_canvas_size = _grid_slice(
-            target_image, overlap, slice_size
+            target_image, request.overlap, slice_size
         )
     input_image.close()
-    return target_image, slices, kwargs
-
-
-@torch.no_grad()
-async def _gobig_inference(
-    prompt: str,
-    pipeline: StablePipe,
-    slices: List[Tuple[Image.Image, int, int]],
-    progress_callback: Optional[Callable[[float], Awaitable]] = None,
-    **kwargs
-):
-    better_slices = []
-    count = 0
-    if progress_callback is not None:
-        async def chunk_progress_callback(
-            batch_step: int, total_batch_steps: int
-        ):
-            current_step = count * total_batch_steps + batch_step
-            total_steps = len(slices) * total_batch_steps
-            progress = current_step / total_steps
-            await progress_callback(progress)
-
-    else:
-        chunk_progress_callback = None
-
-    with autocast("cuda"):
-        with torch.inference_mode():
-            # TODO run in batches
-            for count, (chunk, coord_x, coord_y) in enumerate(slices):
-                result_slice = (
-                    await pipeline.image_to_image(
-                        prompt=prompt,
-                        init_image=chunk,
-                        progress_callback=chunk_progress_callback,
-                        **kwargs,
-                    )
-                )[0]
-                # result_slice.copy?
-                better_slices.append((result_slice, coord_x, coord_y))
-
-    return better_slices
+    return target_image, slices
 
 
 # Composite slices onto a target image.
@@ -245,40 +204,24 @@ def _splice(
 
 
 async def do_gobig(
+    request: GoBigRequest,
+    websocket: WebSocket,
     input_image: Image.Image,
-    prompt: str,
-    esrgan_model: ESRGANModel,
     pipeline: StablePipe,
-    progress_callback: Optional[Callable[[float], Awaitable]] = None,
     **kwargs,
 ) -> Image.Image:
     """
     Perform high-resolution upscaling with RealESRGAN and Stable Diffusion.
 
     Arguments:
+        request (GoBigRequest) - request from web socket
+        websocket (WebSocket) - web socket
         input_image (Image.Image) - image to upscale
-        prompt (str) - prompt to guide Stable Diffusion
-        esrgan_model (ESRGANModel) - RealESRGAN model to use
         pipeline (StablePipe) - Stable Diffusion pipeline for rendering
 
     Optional Arguments:
-        target_width (int) - final desired width (default: 1024)
-        target_height (int) - final desired height (default: 1024)
-        overlap (int) - fuzz amount that Stable Diffusion chunks will overlap
-            (default: 128)
-        maximize (bool) - increase final image size to use up blank space
-            (default: True)
-        use_real_esrgan (bool) - upscale with RealESRGAN rather than PIL
-            (default: True)
         resampling_mode (Resampling) - method for scaling images when using PIL
             (default: Resampling.LANCZOS)
-        strength (float) - strength for Stable Diffusion render (default: 0.3)
-        num_inference_steps (Optional[int]) - number of diffusion iterations
-            (default: 50)
-        guidance_scale (Optional[float]) - guidance scale for Diffusion render
-            (default: 7.5)
-        progress_callback (Optional[Callable[[float], Awaitable]]) - send
-            progress information to web socket (default: None)
 
     Additional arguments are passed to `pipeline` at render time.
 
@@ -287,16 +230,28 @@ async def do_gobig(
     """
     # Get our render size for each slice, and our target size.
     slice_size = (512, 512)
-    target_image, slices, kwargs = _prescale(
-        input_image, esrgan_model, slice_size=slice_size, **kwargs
+    resampling_mode = kwargs.pop("resampling_mode", Resampling.LANCZOS)
+    target_image, slices = _prescale(
+        request,
+        input_image,
+        slice_size=slice_size,
+        resampling_mode=resampling_mode,
     )
-    overlap = kwargs.pop("overlap", 128)
-    kwargs["strength"] = kwargs.pop("strength", 0.3)
-    kwargs["num_inference_steps"] = kwargs.pop("num_inference_steps", 50)
-    kwargs["guidance_scale"] = kwargs.pop("guidance_scale", 7.5)
 
-    # Now we trigger a do_run for each slice.
-    better_slices = await _gobig_inference(
-        prompt, pipeline, slices, progress_callback, **kwargs
+    # Now we perform inference on each slice.
+    inits, coords_x, coords_y = zip(*slices)
+    better_slices = await do_diffusion(
+        request=request,
+        diffusion_method=pipeline.image_to_image,
+        websocket=websocket,
+        init_image=inits,
+        return_images=True,
+        strength=request.strength,
+        **kwargs,
     )
-    return _splice(target_image, better_slices, overlap, slice_size)
+    return _splice(
+        target_image,
+        zip(better_slices, coords_x, coords_y),
+        request.overlap,
+        slice_size,
+    )

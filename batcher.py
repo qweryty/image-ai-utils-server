@@ -11,12 +11,17 @@ Variables:
     LOGGER (logging.Logger) - logging
 """
 
+# pylint: disable=line-too-long
+
 
 import asyncio
 import logging
 from math import ceil
 from typing import Callable, List, Union
 
+from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion_img2img import (
+    preprocess,
+)
 from fastapi import WebSocket
 from PIL import Image
 import torch
@@ -42,12 +47,14 @@ class Batcher:
         num_batches (int) - starts by optimizing `request.batch_size` and
             adjusts during `do_diffusion`
         websocket (WebSocket) - web socket
+        init_image (Union[Image.Image, torch.Tensor]) - initial image
         progress_multiplier (float) - scale progress by this factor,
             set when calling `do_diffusion` (default: 1.0)
         progress_offset (float) - offset progress by this factor,
             set when calling `do_diffusion` (default: 0.0)
 
     Read-Only Instance Attributes:
+        num_images (int) - number of total images to generate
         batch_size (int) - number of images per batch
         last_batch_size (int) - number of images in the last batch
 
@@ -80,21 +87,48 @@ class Batcher:
         self._count = 0
         self.progress_multiplier = 1.0
         self.progress_offset = 0.0
+        self._init_image = None
+
+    @property
+    def init_image(self):
+        """
+        Get/set initial image.
+
+        If set to list of images, convert to tensor.
+        """
+        return self._init_image
+
+    @init_image.setter
+    def init_image(self, init_image):
+        if isinstance(init_image, Image.Image) or init_image is None:
+            self._init_image = init_image
+            return
+        self._init_image = torch.stack(
+            [preprocess(i.convert("RGB")) for i in init_image]
+        ).squeeze(1)
+
+    @property
+    def num_images(self):
+        """Get number of images to generate."""
+        try:
+            return self.request.num_variants
+        except AttributeError:
+            return len(self.init_image)
 
     @property
     def batch_size(self):
         """Get batch size."""
-        return ceil(self.request.num_variants / self.num_batches)
+        return ceil(self.num_images / self.num_batches)
 
     @property
     def last_batch_size(self):
         """Get batch size of the last batch."""
-        return self.request.num_variants % self.batch_size or self.batch_size
+        return self.num_images % self.batch_size or self.batch_size
 
     @property
     def _next_batch_size_to_try(self):
         """If this batch fails, return the next batch size."""
-        return ceil(self.request.num_variants / (self.num_batches + 1))
+        return ceil(self.num_images / (self.num_batches + 1))
 
     async def progress_callback(self, batch_step: int, total_batch_steps: int):
         """
@@ -142,8 +176,19 @@ class Batcher:
                         if count + 1 < self.num_batches
                         else self.last_batch_size
                     )
+                    batch = (
+                        self.init_image[
+                            slice(
+                                count * self.batch_size,
+                                (count + 1) * self.batch_size,
+                            )
+                        ]
+                        if isinstance(self.init_image, torch.Tensor)
+                        else self.init_image
+                    )
                     new_images = await self.diffusion_method(
                         prompt=prompts,
+                        init_image=batch,
                         num_inference_steps=self.request.num_inference_steps,
                         guidance_scale=self.request.guidance_scale,
                         progress_callback=self.progress_callback,
@@ -163,6 +208,8 @@ class Batcher:
         Optional Arguments:
             return_images (bool) - return list rather than ImageArrayResponse
                 (default: `False`)
+            init_image (Union[Image.Image, List[Image.Image]]) -
+                starting image(s) for inference (default: None)
             progress_multiplier (float) - scale progress by this factor
                 (default: 1.0)
             progress_offset (float) - offset progress by this amount
@@ -185,12 +232,13 @@ class Batcher:
         else:
             generator = None
 
+        self.init_image = kwargs.pop("init_image", None)
         self.progress_multiplier = kwargs.pop("progress_multiplier", 1.0)
         self.progress_offset = kwargs.pop("progress_offset", 0.0)
         self._count = 0
-        self.num_batches = ceil(self.request.num_variants / self.request.batch_size)
+        self.num_batches = ceil(self.num_images / self.request.batch_size)
 
-        while self.num_batches <= self.request.num_variants:
+        while self.num_batches <= self.num_images:
             try:
                 images = await self.call_pipe(generator=generator, **kwargs)
                 break

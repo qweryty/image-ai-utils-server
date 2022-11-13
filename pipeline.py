@@ -209,6 +209,7 @@ class StablePipe:
             (List[Image.Image]) - generated image(s)
         """
         kwargs["strength"] = 1.0
+        kwargs.pop("init_image", None)
         return await self.image_to_image(
             prompt=prompt,
             init_image=self._init_image(height, width),
