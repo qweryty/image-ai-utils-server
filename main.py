@@ -5,7 +5,6 @@ Functions:
     authorize - authorize user's credentials
     authorize_web_socket - authorize user's credentials on the web socket
     websocket_handler - decorator to pass functions to web socket
-    do_diffusion - perform diffusion
     text_to_image - diffusion from text
     image_to_image - diffusion from text and image
     inpainting - diffusion on a masked image
@@ -28,7 +27,7 @@ import functools
 from json import JSONDecodeError
 import json
 import logging
-from typing import Callable, List, Dict, Any, Optional, Union
+from typing import Callable
 
 from fastapi import (
     FastAPI,
@@ -45,6 +44,7 @@ import torch
 from torch import autocast
 import uvicorn
 
+from batcher import do_diffusion
 from consts import WebSocketResponseStatus, GFPGANModel
 import esrgan_upscaler
 from exceptions import (
@@ -173,158 +173,6 @@ try:
 except Exception as exception:
     LOGGER.exception(exception)
     raise exception
-
-
-async def do_diffusion(
-    request: BaseImageGenerationRequest,
-    diffusion_method: Callable,
-    websocket: WebSocket,
-    #  batched_params: Optional[Dict[str, List[Any]]] = None,
-    return_images: bool = False,
-    progress_multiplier: float = 1.0,
-    progress_offset: float = 0.0,
-    **kwargs,
-) -> Union[ImageArrayResponse, List[Image.Image]]:
-    """
-    Perform diffusion.
-
-    Arguments:
-        request (BaseImageGenerationRequest) - request from web socket
-        diffusion_method (Callable) - method used to perform the diffusion
-        websocket (WebSocket) - web socket
-
-    Optional Arguments:
-        return_images (bool) - return list rather than ImageArrayResponse
-            (default: `False`)
-        progress_multiplier (float) - scale progress by this factor
-            (default: 1.0)
-        progress_offset (float) - offset progress by this amount
-            (default: 0.0)
-
-    Additional kwargs are passed to `diffusion_method`.
-
-    Returns:
-        images (List[Image.Image] if `return_images` else ImageArrayResponse)
-
-    Raises:
-        BatchSizeIsTooLargeException - if batch size > 1 and a CUDA memory
-            error occurs
-        AspectRatioTooWideException - if batch size == 1 and a CUDA memory
-            error occurs
-    """
-    if request.seed is not None:
-        generator = torch.Generator("cuda").manual_seed(request.seed)
-    else:
-        generator = None
-
-    #  if batched_params is None:
-    #      batched_params = {}
-    with autocast("cuda"):
-        with torch.inference_mode():
-            for batch_size in range(
-                min(request.batch_size, request.num_variants), 0, -1
-            ):
-                try:
-                    num_batches = request.num_variants // batch_size
-                    prompts = [request.prompt] * batch_size
-                    last_batch_size = (
-                        request.num_variants - batch_size * num_batches
-                    )
-                    images = []
-
-                    for i in range(num_batches):
-                        #  batch_kwargs = {}
-                        #  for key, value in batched_params.items():
-                        #      batch_kwargs[key] = value[
-                        #          i * batch_size : (i + 1) * batch_size
-                        #      ]
-
-                        async def progress_callback(
-                            batch_step: int, total_batch_steps: int
-                        ):
-                            current_step = i * total_batch_steps + batch_step
-                            total_steps = num_batches * total_batch_steps
-                            if last_batch_size:
-                                total_steps += total_batch_steps
-                            progress = (
-                                progress_multiplier
-                                * current_step
-                                / total_steps
-                                + progress_offset
-                            )
-                            await websocket.send_json(
-                                {
-                                    "status": WebSocketResponseStatus.PROGRESS,
-                                    "progress": progress,
-                                }
-                            )
-                            # https://github.com/aaugustin/websockets/issues/867
-                            # Probably will be fixed if/when diffusers will
-                            # implement asynchronous pipeline.
-                            # https://github.com/huggingface/diffusers/issues/374
-                            await asyncio.sleep(0)
-
-                        new_images = await diffusion_method(
-                            prompt=prompts,
-                            num_inference_steps=request.num_inference_steps,
-                            generator=generator,
-                            guidance_scale=request.guidance_scale,
-                            progress_callback=progress_callback,
-                            #  **batch_kwargs,
-                            **kwargs,
-                        )
-                        images.extend(new_images)
-
-                    if last_batch_size:
-                        #  batch_kwargs = {}
-                        #  for key, value in batched_params.items():
-                        #      batch_kwargs[key] = value[-last_batch_size:]
-
-                        async def progress_callback(
-                            batch_step: int, total_batch_steps: int
-                        ):
-                            current_step = (
-                                num_batches * total_batch_steps + batch_step
-                            )
-                            total_steps = (num_batches + 1) * total_batch_steps
-                            progress = (
-                                progress_multiplier
-                                * current_step
-                                / total_steps
-                                + progress_offset
-                            )
-                            await websocket.send_json(
-                                {
-                                    "status": WebSocketResponseStatus.PROGRESS,
-                                    "progress": progress,
-                                }
-                            )
-
-                        new_images = await diffusion_method(
-                            prompt=[request.prompt] * last_batch_size,
-                            num_inference_steps=request.num_inference_steps,
-                            generator=generator,
-                            guidance_scale=request.guidance_scale,
-                            progress_callback=progress_callback,
-                            #  **batch_kwargs,
-                            **kwargs,
-                        )
-                        images.extend(new_images)
-                    break
-                except RuntimeError as exc:
-                    if request.try_smaller_batch_on_fail:
-                        LOGGER.warning(
-                            f"Batch size {batch_size} was too large, "
-                            "trying smaller"
-                        )
-                    else:
-                        raise BatchSizeIsTooLargeException(batch_size) from exc
-            else:
-                raise AspectRatioTooWideException
-
-    if return_images:
-        return images
-    return ImageArrayResponse(images=images)
 
 
 # TODO task queue?
