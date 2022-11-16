@@ -1,0 +1,7 @@
+[DESIGN]
+max-attributes=12
+max-line-length=100
+
+[MASTER]
+extension-pkg-whitelist=torch
+disable = no-name-in-module, no-member, import-error
